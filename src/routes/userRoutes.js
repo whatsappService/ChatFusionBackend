@@ -26,4 +26,7 @@ router.delete(
 router.post("/update-profile", authMiddleware, userController.updateProfile);
 router.post("/change-password", authMiddleware, userController.changePassword);
 
+// ✅ Verify User Password before editing API Key or other critical actions
+router.post("/verify-password", authMiddleware, userController.verifyPassword);
+
 module.exports = router;

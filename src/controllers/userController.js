@@ -55,3 +55,24 @@ exports.changePassword = async (req, res) => {
     res.status(400).json({ error: error.message });
   }
 };
+
+// ✅ Verify User Password
+exports.verifyPassword = async (req, res) => {
+  try {
+    const { password } = req.body;
+
+    if (!password) {
+      return res.status(400).json({ error: "Password is required" });
+    }
+
+    const isValid = await userService.verifyPassword(req.user.id, password);
+
+    if (!isValid) {
+      return res.status(401).json({ error: "Incorrect password" });
+    }
+
+    res.json({ success: true, message: "Password is valid" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};

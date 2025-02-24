@@ -77,3 +77,12 @@ exports.changePassword = async (userId, oldPassword, newPassword) => {
   user.password = await hashPassword(newPassword);
   await user.save();
 };
+exports.verifyPassword = async (userId, password) => {
+  const user = await User.findByPk(userId);
+
+  if (!user) {
+    throw new Error("User not found");
+  }
+
+  return await bcrypt.compare(password, user.password);
+};

@@ -80,8 +80,8 @@ exports.resetBusinessApiKey = async (userId, password) => {
         },
       }
     );
-    console.log("response: ",response);
-    
+    console.log("response: ", response);
+
     const newApiKey = response.data.apiKey; // ✅ Extract the new API key from response
 
     if (!newApiKey) {
@@ -104,6 +104,7 @@ exports.resetBusinessApiKey = async (userId, password) => {
 };
 
 // ✅ Update API Key (Requires password verification)
+// ✅ Update API Key in the business (without calling ChatFusion)
 exports.updateBusinessApiKey = async (userId, apiKey, password) => {
   const user = await User.findByPk(userId, {
     include: { model: Business, as: "business" },
@@ -113,23 +114,8 @@ exports.updateBusinessApiKey = async (userId, apiKey, password) => {
     throw new Error("Invalid password");
   }
 
+  // ✅ Only update the API key in the business table
   await user.business.update({ api_key: apiKey });
 
-  try {
-    await axios.post(
-      CHATFUSION_UPDATE_API_KEY_URL,
-      {},
-      {
-        headers: { "x-api-key": apiKey },
-      }
-    );
-  } catch (error) {
-    console.error(
-      "Error updating API Key in ChatFusion:",
-      error.response?.data || error.message
-    );
-    throw new Error("Failed to update API Key in ChatFusion");
-  }
-
-  return apiKey;
+  return { success: true, apiKey }; // ✅ Return the updated API key
 };

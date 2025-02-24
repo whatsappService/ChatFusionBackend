@@ -57,3 +57,23 @@ exports.updateBusinessApiKey = async (req, res) => {
     res.status(400).json({ error: error.message });
   }
 };
+// ✅ Get WhatsApp Authentication Status
+// ✅ Get WhatsApp Authentication Status
+exports.getWhatsAppStatus = async (req, res) => {
+  try {
+    const status = await whatsappService.fetchWhatsAppStatus(req.user.id);
+    res.json(status);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+// ✅ Connect to WhatsApp (Retrieve QR Code)
+exports.connectToWhatsApp = async (req, res) => {
+  try {
+    const qrData = await whatsappService.connectToWhatsApp(req.user.id);
+    res.json(qrData);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+};

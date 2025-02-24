@@ -19,4 +19,6 @@ router.post(
   whatsappController.updateBusinessApiKey
 );
 
+router.get("/status", authMiddleware, whatsappController.getWhatsAppStatus);
+router.get("/connect", authMiddleware, whatsappController.connectToWhatsApp);
 module.exports = router;

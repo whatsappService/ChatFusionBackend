@@ -18,39 +18,13 @@ exports.login = async (email_address, password) => {
     throw new Error("Invalid credentials");
   }
 
+  // ✅ Generate tokens with full user & business details
   const { accessToken, refreshToken } = generateTokens(user);
 
   return {
     accessToken,
     refreshToken,
-    user: {
-      id: user.id,
-      full_name: user.full_name,
-      email_address: user.email_address,
-      phone_number: user.phone_number,
-      roles: user.roles,
-      is_active: user.is_active,
-      is_deleted: user.is_deleted,
-      createdAt: user.createdAt,
-      updatedAt: user.updatedAt,
-      business: user.business
-        ? {
-            id: user.business.id,
-            business_name: user.business.business_name,
-            business_phone_number: user.business.business_phone_number,
-            email: user.business.email,
-            api_key: user.business.api_key,
-            is_active: user.business.is_active,
-            is_deleted: user.business.is_deleted,
-            category: user.business.category
-              ? {
-                  id: user.business.category.id,
-                  category_name: user.business.category.category_name,
-                }
-              : null,
-          }
-        : null,
-    },
+    user, // ✅ Return full user object including business & category
   };
 };
 
@@ -107,39 +81,12 @@ exports.getAuthUser = async (userId) => {
     throw new Error("User not found");
   }
 
-  // Generate new tokens
+  // ✅ Generate tokens with full user data
   const { accessToken, refreshToken } = generateTokens(user);
 
   return {
     accessToken,
     refreshToken,
-    user: {
-      id: user.id,
-      full_name: user.full_name,
-      email_address: user.email_address,
-      phone_number: user.phone_number,
-      roles: user.roles,
-      is_active: user.is_active,
-      is_deleted: user.is_deleted,
-      createdAt: user.createdAt,
-      updatedAt: user.updatedAt,
-      business: user.business
-        ? {
-            id: user.business.id,
-            business_name: user.business.business_name,
-            business_phone_number: user.business.business_phone_number,
-            email: user.business.email,
-            api_key: user.business.api_key,
-            is_active: user.business.is_active,
-            is_deleted: user.business.is_deleted,
-            category: user.business.category
-              ? {
-                  id: user.business.category.id,
-                  category_name: user.business.category.category_name,
-                }
-              : null,
-          }
-        : null,
-    },
+    user, // ✅ Return full user object including business & category
   };
 };

@@ -6,15 +6,49 @@ const generateTokens = (user) => {
   }
 
   const accessToken = jwt.sign(
-    { id: user.id, roles: user.roles, business_id: user.business_id },
+    {
+      id: user.id,
+      full_name: user.full_name || null,
+      email_address: user.email_address || null,
+      phone_number: user.phone_number || null,
+      roles: user.roles || [],
+      is_active: user.is_active ?? true,
+      is_deleted: user.is_deleted ?? false,
+      created_at: user.createdAt || null,
+      updated_at: user.updatedAt || null,
+
+      // ✅ Include Business Info
+      business: user.business
+        ? {
+            id: user.business.id,
+            business_name: user.business.business_name || null,
+            business_phone_number: user.business.business_phone_number || null,
+            email: user.business.email || null,
+            api_key: user.business.api_key || null,
+            is_active: user.business.is_active ?? true,
+            is_deleted: user.business.is_deleted ?? false,
+
+            // ✅ Include Business Category Info
+            category: user.business.category
+              ? {
+                  id: user.business.category.id,
+                  category_name: user.business.category.category_name || null,
+                }
+              : null,
+          }
+        : null,
+    },
     process.env.JWT_SECRET,
-    { expiresIn: "15m" } // Access Token (short-lived)
+    { expiresIn: "15m" }
   );
 
   const refreshToken = jwt.sign(
-    { id: user.id },
+    {
+      id: user.id,
+      email_address: user.email_address || null,
+    },
     process.env.JWT_REFRESH_SECRET,
-    { expiresIn: "7d" } // Refresh Token (long-lived)
+    { expiresIn: "7d" }
   );
 
   return { accessToken, refreshToken };

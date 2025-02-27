@@ -11,11 +11,12 @@ exports.addCustomer = async (req, res) => {
 
 exports.getAllCustomers = async (req, res) => {
   try {
-    const { page = 0, limit = 10, category_id } = req.query;
+    const { page = 0, limit = 10, category_id, search = "" } = req.query;
     const result = await customerService.getAllCustomers(
       Number(page),
       Number(limit),
-      category_id
+      category_id,
+      search
     );
     res.json(result);
   } catch (error) {

@@ -1,9 +1,25 @@
+const { Op } = require("sequelize");
 const Customer = require("../models/customer");
 
-exports.getAllCustomers = async (page = 0, limit = 10, categoryId = null) => {
+exports.getAllCustomers = async (
+  page = 0,
+  limit = 10,
+  categoryId = null,
+  searchTerm = ""
+) => {
   const offset = page * limit;
 
-  const whereCondition = categoryId ? { category_id: categoryId } : {};
+  const whereCondition = {};
+
+  if (categoryId) {
+    whereCondition.category_id = categoryId;
+  }
+
+  if (searchTerm) {
+    whereCondition.profile_name = {
+      [Op.like]: `%${searchTerm}%`, // ✅ Case-insensitive search by customer name
+    };
+  }
 
   const { rows: customers, count } = await Customer.findAndCountAll({
     where: whereCondition,

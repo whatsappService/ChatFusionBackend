@@ -1,10 +1,36 @@
+const Business = require("../models/business");
 const messageTemplateService = require("../services/messageTemplateService");
 
 exports.createTemplate = async (req, res) => {
   try {
-    const template = await messageTemplateService.createTemplate(req.body);
-    res.status(201).json(template);
+    const { template_name, message_ar, message_en, placeholders } = req.body;
+    const userId = req.user.id; // ✅ Get authenticated user ID from JWT
+
+    // ✅ Get the business_id of the user
+    const userBusiness = await Business.findOne({
+      where: { id: req.user.business_id },
+    });
+
+    if (!userBusiness) {
+      return res.status(400).json({ error: "User's business not found." });
+    }
+
+    // ✅ Get the category_id from the business
+    const categoryId = userBusiness.category_id;
+
+    // ✅ Create the message template with the correct category_id
+    const newTemplate = await messageTemplateService.createTemplate({
+      user_id: userId, // ✅ Set the creator
+      category_id: categoryId, // ✅ Auto-set based on business
+      template_name,
+      message_ar,
+      message_en,
+      placeholders: JSON.stringify(placeholders || []),
+    });
+
+    res.status(201).json(newTemplate);
   } catch (error) {
+    console.error("Error creating message template:", error);
     res.status(500).json({ error: error.message });
   }
 };
@@ -12,16 +38,12 @@ exports.createTemplate = async (req, res) => {
 exports.getAllTemplates = async (req, res) => {
   try {
     const { page = 0, limit = 10, search } = req.query;
-    const businessId = req.user.business_id; // ✅ Extract business_id from JWT
-
-    if (!businessId) {
-      return res.status(400).json({ error: "Business ID is required" });
-    }
+    const userId = req.user.id; // ✅ Extract User ID from JWT Token
 
     const result = await messageTemplateService.getAllTemplates(
       Number(page),
       Number(limit),
-      businessId, // ✅ Pass business_id to service
+      userId, // ✅ Fetch system & user-specific templates
       search
     );
 

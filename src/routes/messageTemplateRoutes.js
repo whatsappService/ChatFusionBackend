@@ -4,7 +4,7 @@ const messageTemplateController = require("../controllers/messageTemplateControl
 const authMiddleware = require("../middleware/authMiddleware");
 // ✅ Add this route to fetch message template categories
 router.get("/categories", messageTemplateController.getTemplateCategories);
-router.post("/", messageTemplateController.createTemplate);
+router.post("/", authMiddleware, messageTemplateController.createTemplate);
 router.get("/", authMiddleware, messageTemplateController.getAllTemplates);
 router.get("/:id", messageTemplateController.getTemplateById);
 router.put("/:id", messageTemplateController.updateTemplate);

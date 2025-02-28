@@ -7,28 +7,18 @@ exports.createTemplate = async (data) => {
   return await MessageTemplate.create(data);
 };
 
-exports.getAllTemplates = async (
-  page = 0,
-  limit = 10,
-  businessId,
-  search = ""
-) => {
+exports.getAllTemplates = async (page = 0, limit = 10, userId, search = "") => {
   const offset = page * limit;
 
-  // ✅ Find category_id from Businesses table
-  const business = await Business.findOne({
-    where: { id: businessId },
-    attributes: ["category_id"], // Get only category_id
-  });
-
-  if (!business || !business.category_id) {
-    return { templates: [], total: 0, page, limit }; // No category found
-  }
-
-  const whereCondition = { category_id: business.category_id };
+  const whereCondition = {
+    [Op.or]: [
+      { user_id: null }, // ✅ System Templates
+      { user_id: userId }, // ✅ User's Custom Templates
+    ],
+  };
 
   if (search) {
-    whereCondition.template_name = { [Op.like]: `%${search}%` };
+    whereCondition.template_name = { [Op.like]: `%${search}%` }; // ✅ Case-insensitive search
   }
 
   const { rows: templates, count } = await MessageTemplate.findAndCountAll({

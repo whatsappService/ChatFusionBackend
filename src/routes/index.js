@@ -9,6 +9,7 @@ const customerCategoryRoutes = require("./customerCategoryRoutes");
 const messageTemplateRoutes = require("./messageTemplateRoutes");
 const reportRoutes = require("./reportRoutes");
 const whatsappRoutes = require("./whatsappRoutes");
+const messageRoutes = require("./messageRoutes");
 const router = express.Router();
 
 router.use("/auth", authRoutes);
@@ -20,5 +21,7 @@ router.use("/customer-categories", customerCategoryRoutes);
 router.use("/message-templates", messageTemplateRoutes);
 router.use("/reports", reportRoutes);
 router.use("/whatsapp", whatsappRoutes);
+router.use("/messaging", messageRoutes);
+
 
 module.exports = router;

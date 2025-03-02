@@ -14,6 +14,9 @@ const CHATFUSION_STATUS_URL =
   "https://chatfusion.murraltd.com/api/whatsapp/status";
 const CHATFUSION_CONNECT_URL =
   "https://chatfusion.murraltd.com/api/whatsapp/connect";
+const CHATFUSION_CHECK_NUMBER_URL =
+  process.env.CHATFUSION_CHECK_NUMBER_URL ||
+  "https://chatfusion.murraltd.com/api/whatsapp/check-whatsapp-number";
 
 /**
  * ✅ Get API Key for a user's business
@@ -132,7 +135,6 @@ exports.updateBusinessApiKey = async (userId, apiKey, password) => {
   }
 };
 
-
 /**
  * ✅ Fetch WhatsApp Authentication Status (Now includes x-api-key)
  */
@@ -180,6 +182,43 @@ exports.connectToWhatsApp = async (userId) => {
     );
     throw new Error(
       error.response?.data?.message || "Failed to connect to WhatsApp"
+    );
+  }
+};
+
+/**
+ * Check if a phone number is registered on WhatsApp using ChatFusion API.
+ *
+ * @param {number} userId - The id of the authenticated user.
+ * @param {string} phoneNumber - The phone number to check.
+ * @returns {Object} - The response from the ChatFusion API.
+ */
+exports.checkWhatsAppNumber = async (userId, phoneNumber) => {
+  try {
+    // Retrieve the API key associated with the user's business
+    const apiKey = await this.getApiKeyByUser(userId);
+    if (!apiKey) {
+      throw new Error("API key not found for this business.");
+    }
+
+    // Build the URL using the query parameter 'recipient'
+    const url = `${CHATFUSION_CHECK_NUMBER_URL}?phone=${encodeURIComponent(
+      phoneNumber
+    )}`;
+
+    // Call the ChatFusion API using GET request
+    const response = await axios.get(url, {
+      headers: { "x-api-key": apiKey },
+    });
+
+    return response.data;
+  } catch (error) {
+    console.error(
+      "Error checking WhatsApp number:",
+      error.response?.data || error.message
+    );
+    throw new Error(
+      error.response?.data?.message || "Failed to check WhatsApp number"
     );
   }
 };

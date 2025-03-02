@@ -35,13 +35,31 @@ exports.getCustomerById = async (id) => {
 };
 
 exports.addCustomer = async (data) => {
-  return await Customer.create(data);
+  try {
+    return await Customer.create(data);
+  } catch (error) {
+    // Check if the error is a Sequelize unique constraint error
+    if (error.name === "SequelizeUniqueConstraintError") {
+      throw new Error("This phone number is already added");
+    }
+    throw error;
+  }
 };
 
 exports.updateCustomer = async (id, data) => {
   const customer = await Customer.findByPk(id);
   if (!customer) throw new Error("Customer not found");
-  return await customer.update(data);
+
+  // Map incoming camelCase fields to snake_case as defined in your model.
+  const updateData = {
+    profile_name: data.profileName,
+    whatsapp_number: data.whatsapp_number || data.whatsappNumber,
+    category_id: data.categoryId,
+    gender: data.gender,
+    // include any other fields as needed
+  };
+
+  return await customer.update(updateData);
 };
 
 exports.deleteCustomer = async (id) => {

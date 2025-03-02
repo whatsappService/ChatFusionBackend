@@ -18,7 +18,14 @@ router.post(
   authMiddleware,
   whatsappController.updateBusinessApiKey
 );
-
 router.get("/status", authMiddleware, whatsappController.getWhatsAppStatus);
 router.get("/connect", authMiddleware, whatsappController.connectToWhatsApp);
+
+// New route to check a WhatsApp number
+router.post(
+  "/check-whatsapp-number",
+  authMiddleware,
+  whatsappController.checkWhatsAppNumber
+);
+
 module.exports = router;

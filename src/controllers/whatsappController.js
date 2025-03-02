@@ -77,3 +77,25 @@ exports.connectToWhatsApp = async (req, res) => {
     res.status(400).json({ error: error.message });
   }
 };
+exports.checkWhatsAppNumber = async (req, res) => {
+  try {
+    const { phoneNumber } = req.body;
+    if (!phoneNumber) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Phone number is required" });
+    }
+    // Call the service function, passing the authenticated user's id and the phone number
+    const result = await whatsappService.checkWhatsAppNumber(
+      req.user.id,
+      phoneNumber
+    );
+    res.json(result);
+  } catch (error) {
+    console.error("Error checking WhatsApp number:", error);
+    res.status(400).json({
+      success: false,
+      message: error.message || "Failed to check WhatsApp number",
+    });
+  }
+};

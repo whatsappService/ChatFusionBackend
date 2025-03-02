@@ -1,8 +1,23 @@
 const customerService = require("../services/customerService");
 
+// controllers/customerController.js
 exports.addCustomer = async (req, res) => {
   try {
-    const customer = await customerService.addCustomer(req.body);
+    // Merge authenticated user's id into the customer data
+    const customerData = {
+      ...req.body,
+      user_id: req.user.id, // Set user_id from authenticated user
+    };
+
+    // Validate required fields
+    if (!customerData.whatsapp_number) {
+      return res.status(400).json({ error: "whatsapp_number is required" });
+    }
+    if (!customerData.gender) {
+      return res.status(400).json({ error: "gender is required" });
+    }
+
+    const customer = await customerService.addCustomer(customerData);
     res.status(201).json(customer);
   } catch (error) {
     res.status(500).json({ error: error.message });

@@ -19,7 +19,6 @@ exports.sendSingleMessage = async (businessId, recipient, contents, files) => {
       throw new Error("API key not found for this business");
     }
 
-    console.log("🔑 Using API Key:", business.api_key);
 
     // ✅ Validate Recipient Number
     if (!/^\d+$/.test(recipient)) {
@@ -46,7 +45,6 @@ exports.sendSingleMessage = async (businessId, recipient, contents, files) => {
       });
     }
 
-    console.log("📤 Forwarding request to ChatFusion...");
 
     // ✅ Send the request to ChatFusion API
     const chatFusionResponse = await axios.post(
@@ -60,7 +58,6 @@ exports.sendSingleMessage = async (businessId, recipient, contents, files) => {
       }
     );
 
-    console.log("✅ ChatFusion Response:", chatFusionResponse.data);
 
     // ✅ Handle success and failure cases
     if (
@@ -83,5 +80,100 @@ exports.sendSingleMessage = async (businessId, recipient, contents, files) => {
       error.response?.data || error.message
     );
     throw new Error(error.response?.data?.message || "Failed to send message");
+  }
+};
+
+/**
+ * Send bulk messages via ChatFusion
+ * @param {number} businessId - The business ID of the sender.
+ * @param {Array<string>} globalMessages - Array of global messages.
+ * @param {Array<Object>} recipientsData - Array of recipient objects with structure:
+ *   { recipient: "phoneNumber", personalMessages: [..], personalAttachments: [..] }
+ * @param {Array} globalFiles - Array of global file objects (from multer).
+ * @param {Array} personalFiles - Array of personal file objects (from multer).
+ * @returns {Object} API response.
+ */
+exports.sendBulkMessage = async (
+  businessId,
+  globalMessages,
+  recipientsData,
+  globalFiles,
+  personalFiles
+) => {
+  try {
+    // Get the business API key
+    const business = await Business.findOne({ where: { id: businessId } });
+    if (!business || !business.api_key) {
+      throw new Error("API key not found for this business");
+    }
+
+
+    // Prepare FormData using the "form-data" package
+    const formData = new FormData();
+    formData.append("globalMessages", JSON.stringify(globalMessages));
+    formData.append("recipientsData", JSON.stringify(recipientsData));
+
+    // Append global files
+    if (globalFiles && globalFiles.length > 0) {
+      globalFiles.forEach((file) => {
+        if (file.buffer) {
+          formData.append("globalFiles", file.buffer, {
+            filename: file.originalname,
+          });
+        } else {
+          // Fallback: if no buffer, append file as is
+          formData.append("globalFiles", file);
+        }
+      });
+    }
+
+    // Append personal files
+    if (personalFiles && personalFiles.length > 0) {
+      personalFiles.forEach((file) => {
+        if (file.buffer) {
+          formData.append("personalFiles", file.buffer, {
+            filename: file.originalname,
+          });
+        } else {
+          formData.append("personalFiles", file);
+        }
+      });
+    }
+
+
+    // Send the request to ChatFusion Bulk API endpoint
+    const chatFusionResponse = await axios.post(
+      "https://chatfusion.murraltd.com/api/messaging/sendBulk",
+      formData,
+      {
+        headers: {
+          "x-api-key": business.api_key,
+          ...formData.getHeaders(),
+        },
+      }
+    );
+
+
+    if (
+      !chatFusionResponse.data.success ||
+      chatFusionResponse.data.failedCount > 0
+    ) {
+      const failedMessages = chatFusionResponse.data.data.failedMessages || [];
+      return {
+        success: false,
+        message: "Bulk message not sent",
+        failedMessages,
+      };
+    }
+
+    return { success: true, message: chatFusionResponse.data.message };
+  } catch (error) {
+    console.error(
+      "❌ Error in bulk message service:",
+      error.response?.data || error.message
+    );
+    throw new Error(
+      error.response?.data?.message || "Failed to send bulk message"
+    );
   }
 };

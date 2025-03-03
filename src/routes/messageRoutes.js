@@ -6,12 +6,23 @@ const authenticateUser = require("../middleware/authMiddleware");
 const router = express.Router();
 const upload = multer(); // Handle file uploads
 
-// ✅ Secure route with authentication
+// Route for sending a single message
 router.post(
   "/send-single",
   authenticateUser,
   upload.array("files"),
   messageController.sendSingleMessage
+);
+
+// NEW: Route for sending bulk messages
+router.post(
+  "/sendBulk",
+  authenticateUser,
+  upload.fields([
+    { name: "globalFiles", maxCount: 10 },
+    { name: "personalFiles", maxCount: 50 },
+  ]),
+  messageController.sendBulkMessage
 );
 
 module.exports = router;

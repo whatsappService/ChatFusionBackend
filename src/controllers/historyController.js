@@ -18,7 +18,7 @@ exports.getUserMessages = async (req, res) => {
 exports.getHistoryBetweenDates = async (req, res) => {
   try {
     const userId = req.user.id;
-    // Expect query parameters startDate and endDate along with the userId
+    // Expect query parameters: startDate, endDate
     const data = await historyService.fetchHistoryBetweenDates(
       userId,
       req.query
@@ -31,19 +31,22 @@ exports.getHistoryBetweenDates = async (req, res) => {
 };
 
 exports.getMessagesByHistory = async (req, res) => {
-    try {
-      const userId = req.user.id;
-      const historyId = req.params.historyId;
-      const buffer = await historyService.fetchMessagesByHistory(userId, historyId);
-  
-      res.set({
-        "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "Content-Disposition": 'attachment; filename="report.xlsx"',
-      });
-      res.send(buffer);
-    } catch (error) {
-      console.error("Error in getMessagesByHistory:", error.message);
-      res.status(500).json({ error: error.message });
-    }
-  };
-  
+  try {
+    const userId = req.user.id;
+    const historyId = req.params.historyId;
+    const buffer = await historyService.fetchMessagesByHistory(
+      userId,
+      historyId
+    );
+
+    res.set({
+      "Content-Type":
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "Content-Disposition": 'attachment; filename="report.xlsx"',
+    });
+    res.send(buffer);
+  } catch (error) {
+    console.error("Error in getMessagesByHistory:", error.message);
+    res.status(500).json({ error: error.message });
+  }
+};

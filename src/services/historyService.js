@@ -2,12 +2,13 @@ const axios = require("axios");
 const Business = require("../models/business");
 const logger = require("../utils/logger");
 require("dotenv").config();
-const ExcelJS = require("exceljs");
+
 const generateExcelReport = require("../utils/excelGenerator");
 
 // Use the WHATSAPP_SERVICE_URL from the environment variables.
 // It should be defined in your .env file.
 const API_BASE = process.env.WHATSAPP_SERVICE_URL;
+console.log(API_BASE);
 
 if (!API_BASE) {
   throw new Error(
@@ -44,20 +45,20 @@ exports.fetchUserMessages = async (userId, queryParams) => {
 
 /**
  * Fetch history between two dates for a given business.
- * @param {string} userId - The authenticated user ID.
- * @param {Object} queryParams - Query parameters (e.g., startDate, endDate)
- * @returns {Promise<Object>} API response data.
  */
 exports.fetchHistoryBetweenDates = async (userId, queryParams) => {
   const business = await Business.findOne({ where: { id: userId } });
   if (!business || !business.api_key) {
     throw new Error("API key not found for this business");
   }
-  const url = `${API_BASE}/history/history-between-dates`;
-  logger.info("Fetching history between dates from:", url);
+
+  const { startDate, endDate } = queryParams;
+  const url = `${API_BASE}/history/history-between-dates?startDate=${encodeURIComponent(
+    startDate
+  )}&endDate=${encodeURIComponent(endDate)}`;
+  console.log("Constructed URL:", url);
 
   const response = await axios.get(url, {
-    params: queryParams,
     headers: {
       "x-api-key": business.api_key,
     },

@@ -8,7 +8,7 @@ router.get("/user-messages", authMiddleware, historyController.getUserMessages);
 
 // Get history between dates
 router.get(
-  "/history-between-dates",
+  "/user-history",
   authMiddleware,
   historyController.getHistoryBetweenDates
 );

@@ -52,10 +52,24 @@ exports.fetchHistoryBetweenDates = async (userId, queryParams) => {
     throw new Error("API key not found for this business");
   }
 
+  let url = `${API_BASE}/history/user-history`;
+
+  // ✅ Extract query params and remove undefined values
   const { startDate, endDate } = queryParams;
-  const url = `${API_BASE}/history/history-between-dates?startDate=${encodeURIComponent(
-    startDate
-  )}&endDate=${encodeURIComponent(endDate)}`;
+  const queryParamsArray = [];
+
+  if (startDate) {
+    queryParamsArray.push(`startDate=${encodeURIComponent(startDate)}`);
+  }
+  if (endDate) {
+    queryParamsArray.push(`endDate=${encodeURIComponent(endDate)}`);
+  }
+
+  // ✅ Append query params if any exist
+  if (queryParamsArray.length > 0) {
+    url += `?${queryParamsArray.join("&")}`;
+  }
+
   console.log("Constructed URL:", url);
 
   const response = await axios.get(url, {

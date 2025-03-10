@@ -4,16 +4,16 @@ services:
   db:
     image: mysql:8.0
     restart: always
-    container_name: mysql
+    container_name: chatfusion_mysql
     environment:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: whatsapp_portal
       MYSQL_USER: root
       MYSQL_PASSWORD: root
     ports:
-      - "3308:3306" # Map host port 3308 to container port 3306
+      - "3308:3306" # Map host port 3308 to container's 3306
     volumes:
-      - db_data:/var/lib/mysql
+      - db_data_chatfusion:/var/lib/mysql
 
   backend:
     build: .
@@ -23,10 +23,10 @@ services:
       - .env.production
     environment:
       NODE_ENV: production
-      MYSQL_HOST: db # This allows your backend to connect to the MySQL container
+      MYSQL_HOST: db # Docker DNS resolves "db" to the db service container
     depends_on:
       - db
     command: sh -c "npx sequelize-cli db:migrate && npm start"
 
 volumes:
-  db_data:
+  db_data_chatfusion:

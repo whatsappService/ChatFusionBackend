@@ -11,7 +11,7 @@ services:
       MYSQL_USER: root
       MYSQL_PASSWORD: root
     ports:
-      - "3307:3306"
+      - "3308:3306" # Map host port 3308 to container port 3306
     volumes:
       - db_data:/var/lib/mysql
 
@@ -23,8 +23,7 @@ services:
       - .env.production
     environment:
       NODE_ENV: production
-      # Override MYSQL_HOST to use the db container hostname
-      MYSQL_HOST: db
+      MYSQL_HOST: db # This allows your backend to connect to the MySQL container
     depends_on:
       - db
     command: sh -c "npx sequelize-cli db:migrate && npm start"

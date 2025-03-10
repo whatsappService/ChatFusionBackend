@@ -14,8 +14,6 @@ services:
       # Within the shared network, MySQL is reachable by its container name on its internal port (3306)
       MYSQL_HOST: mysql_db
       MYSQL_PORT: 3306
-    networks:
-      - whatsapp_network
     command: sh -c "npm start"
 
 networks:

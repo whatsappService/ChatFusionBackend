@@ -22,9 +22,9 @@ module.exports = {
       },
       profile_name: { type: Sequelize.STRING, allowNull: true },
       gender: {
-        type: Sequelize.ENUM("male", "female", "other"),
+        type: Sequelize.ENUM("male", "female", "not_set"),
         allowNull: false,
-        defaultValue: "other",
+        defaultValue: "not_set",
       },
       status: {
         type: Sequelize.ENUM("verified", "unverified"),

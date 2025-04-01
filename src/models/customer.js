@@ -21,8 +21,9 @@ Customer.init(
     whatsapp_number: { type: DataTypes.STRING, allowNull: false, unique: true },
     profile_name: { type: DataTypes.STRING, allowNull: true },
     gender: {
-      type: DataTypes.ENUM("male", "female"),
+      type: DataTypes.ENUM("male", "female","not_set"),
       allowNull: false,
+      defaultValue: "not_set",
     },
     status: {
       type: DataTypes.ENUM("verified", "unverified"),

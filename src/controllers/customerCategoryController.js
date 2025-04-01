@@ -22,6 +22,20 @@ exports.getAllCategories = async (req, res) => {
   }
 };
 
+exports.getCategoriesByUserId = async (req, res) => {
+  console.log("👤 Authenticated User:", req.user);
+  
+  try {
+    const categories = await customerCategoryService.getAllCategoriesByUser(
+      req.user.id
+    );
+    if (!categories)
+      return res.status(404).json({ error: "Categories not found" });
+    res.json(categories);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
 exports.getCategoryById = async (req, res) => {
   try {
     const category = await customerCategoryService.getCategoryById(

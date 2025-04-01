@@ -4,7 +4,7 @@ const customerCategoryController = require("../controllers/customerCategoryContr
 const authMiddleware = require("../middleware/authMiddleware");
 
 router.post("/", authMiddleware, customerCategoryController.createCategory);
-router.get("/", customerCategoryController.getAllCategories);
+router.get("/", authMiddleware,customerCategoryController.getCategoriesByUserId);
 router.get("/:id", customerCategoryController.getCategoryById);
 router.put("/:id", customerCategoryController.updateCategory);
 router.delete("/:id", customerCategoryController.deleteCategory);

@@ -6,6 +6,9 @@ const whatsappService = require("../services/whatsappService");
 const {
   createImportResultReport,
 } = require("../utils/createImportResultReport");
+const Business = require("../models/business");
+const { default: axios } = require("axios");
+const User = require("../models/user");
 
 // Define a default category ID (adjust as needed)
 const DEFAULT_CATEGORY_ID = 1;
@@ -14,7 +17,8 @@ exports.getAllCustomers = async (
   page = 0,
   limit = 10,
   categoryId = null,
-  searchTerm = ""
+  searchTerm = "",
+  order
 ) => {
   const offset = page * limit;
   const whereCondition = {};
@@ -28,6 +32,7 @@ exports.getAllCustomers = async (
     where: whereCondition,
     offset,
     limit,
+    order: [["profile_name", order]], // order results by profile_name in the specified order
   });
   return { customers, total: count, page, limit };
 };
@@ -208,6 +213,106 @@ exports.importCustomersFromExcel = async (
   const reportBuffer = await createImportResultReport(reportRows, language);
   return reportBuffer;
 };
+/**
+ * Sync customers with WhatsApp.
+ *
+ * This service calls the ChatFusion WhatsApp contacts endpoint, then iterates over
+ * each contact. For each contact, if a customer with the contact's phone number does not already exist,
+ * it creates a new customer using the contact's pushname (or name) and number.
+ *
+ * @param {number} userId - The authenticated user's ID.
+ * @returns {Promise<Object>} - An object containing a summary: total contacts processed, added, skipped, and errors.
+ */
+exports.syncWithWhatsApp = async (userId) => {
+  // Retrieve the business record to get the API key
+  const user = await User.findOne({ where: { id: userId } });
+  if (!user || !user.business_id) {
+    throw new Error("business id not found for this business.");
+  }
+  const business = await Business.findOne({ where: { id: user.business_id } });
+  if (!business || !business.api_key) {
+    throw new Error("API key not found for this business.");
+  }
+  const CHATFUSION_CONTACT_URL =
+    "https://chatfusion.murraltd.com/api/whatsapp/contact";
+  let response;
+  try {
+    response = await axios.get(CHATFUSION_CONTACT_URL, {
+      headers: { "x-api-key": business.api_key },
+    });
+  } catch (error) {
+    throw new Error("Failed to fetch WhatsApp contacts: " + error.message);
+  }
+
+  // Ensure contacts is an array
+  let contacts = [];
+  if (Array.isArray(response.data)) {
+    contacts = response.data;
+  } else if (response.data && Array.isArray(response.data.contacts)) {
+    contacts = response.data.contacts;
+  } else {
+    throw new Error("contacts is not iterable");
+  }
+
+  let total = contacts.length;
+  let added = 0;
+  let skipped = 0;
+  let errors = 0;
+
+  // Prepare report rows with a header row.
+  const reportRows = [["Phone Number", "Name", "Status"]];
+
+  for (const contact of contacts) {
+    try {
+      const phoneStr = contact.number ? String(contact.number) : "";
+      if (!phoneStr) {
+        skipped++;
+        reportRows.push([null, null, "missingPhone"]);
+        continue;
+      }
+      // Check if customer already exists
+      const existing = await Customer.findOne({
+        where: { whatsapp_number: phoneStr },
+      });
+      if (existing) {
+        skipped++;
+        reportRows.push([
+          phoneStr,
+          contact.pushname || contact.name,
+          "alreadyExists",
+        ]);
+        continue;
+      }
+      const newCustomerData = {
+        user_id: userId,
+        whatsapp_number: phoneStr,
+        profile_name: contact.pushname || contact.name,
+        gender: "not_set",
+        category_id: DEFAULT_CATEGORY_ID,
+        status: "verified",
+      };
+      await Customer.create(newCustomerData);
+      added++;
+      reportRows.push([
+        phoneStr,
+        contact.pushname || contact.name,
+        "addedSuccessfully",
+      ]);
+    } catch (error) {
+      errors++;
+      reportRows.push([
+        contact.number,
+        contact.pushname || contact.name,
+        "error: " + error.message,
+      ]);
+      console.error("Error processing contact:", error.message);
+    }
+  }
+
+  // Generate the Excel report buffer using the utility.
+  const reportBuffer = await createImportResultReport(reportRows, "en");
+  return { reportBuffer, summary: { total, added, skipped, errors } };
+};
 
 module.exports = {
   getAllCustomers: exports.getAllCustomers,
@@ -217,4 +322,5 @@ module.exports = {
   getCustomersByUserId: exports.getCustomersByUserId,
   deleteCustomer: exports.deleteCustomer,
   importCustomersFromExcel: exports.importCustomersFromExcel,
+  syncWithWhatsApp: exports.syncWithWhatsApp,
 };

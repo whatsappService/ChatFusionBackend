@@ -4,12 +4,18 @@ const customerController = require("../controllers/customerController");
 const authMiddleware = require("../middleware/authMiddleware");
 const multer = require("multer");
 const upload = multer({ dest: "uploads/" });
+// Updated route for syncing with WhatsApp contacts (changed method to GET)
+router.get(
+  "/sync-whatsapp-contacts",
+  authMiddleware,
+  customerController.syncWithWhatsApp
+);
 // New route: Download import template
 router.get(
-    "/import-template",
-    authMiddleware,
-    customerController.downloadImportTemplate
-  );
+  "/import-template",
+  authMiddleware,
+  customerController.downloadImportTemplate
+);
 // Existing customer routes
 router.post("/", authMiddleware, customerController.addCustomer);
 router.get("/", customerController.getAllCustomers); // supports pagination & category filter
@@ -24,14 +30,5 @@ router.post(
   upload.single("file"),
   customerController.importCustomers
 );
-
-// New route for syncing with WhatsApp
-router.post(
-  "/sync-whatsapp",
-  authMiddleware,
-  customerController.syncWithWhatsApp
-);
-
-
 
 module.exports = router;

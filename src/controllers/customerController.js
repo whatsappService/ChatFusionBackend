@@ -25,12 +25,19 @@ exports.addCustomer = async (req, res) => {
 
 exports.getAllCustomers = async (req, res) => {
   try {
-    const { page = 0, limit = 10, category_id, search = "" } = req.query;
+    const {
+      page = 0,
+      limit = 10,
+      category_id,
+      search = "",
+      order = "asc",
+    } = req.query;
     const result = await customerService.getAllCustomers(
       Number(page),
       Number(limit),
       category_id,
-      search
+      search,
+      order
     );
     res.json(result);
   } catch (error) {
@@ -62,7 +69,8 @@ exports.updateCustomer = async (req, res) => {
 exports.getCustomersByUserId = async (req, res) => {
   try {
     const customer = await customerService.getCustomersByUserId(req.params.id);
-    if (!customer) return res.status(404).json({ error: "Customers not found" });
+    if (!customer)
+      return res.status(404).json({ error: "Customers not found" });
     res.json(customer);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -109,10 +117,25 @@ exports.importCustomers = async (req, res) => {
 /**
  * Sync customers with WhatsApp.
  */
+
+/**
+ * Sync customers with WhatsApp.
+ * This endpoint calls the syncWithWhatsApp service, which returns an Excel report (reportBuffer)
+ * and a summary of contacts processed.
+ */
 exports.syncWithWhatsApp = async (req, res) => {
   try {
+    console.log("syncWithWhatsApp called for user:", req.user.id);
     const result = await customerService.syncWithWhatsApp(req.user.id);
-    res.json({ success: true, data: result });
+    // Return the result as JSON. The reportBuffer is sent as a base64 string.
+    res.json({
+      success: true,
+      data: {
+        // Convert the buffer to base64 so it can be handled on the client side.
+        reportBuffer: result.reportBuffer.toString("base64"),
+        summary: result.summary,
+      },
+    });
   } catch (error) {
     console.error("Error syncing with WhatsApp:", error);
     res.status(500).json({ error: error.message });
@@ -131,10 +154,9 @@ exports.syncWithWhatsApp = async (req, res) => {
  */
 exports.downloadImportTemplate = async (req, res) => {
   try {
-    
     const language = req.query.lang || "en";
     console.log(req.user);
-    
+
     // Get categories for the authenticated user
     const categories = await customerCategoryService.getAllCategoriesByUser(
       req.user.id

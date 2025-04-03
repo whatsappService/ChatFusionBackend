@@ -1,5 +1,7 @@
 "use strict";
 
+const { DataTypes } = require("sequelize");
+
 module.exports = {
   up: async (queryInterface, Sequelize) => {
     await queryInterface.createTable("Businesses", {
@@ -8,6 +10,7 @@ module.exports = {
       business_phone_number: { type: Sequelize.STRING, allowNull: false },
       email: { type: Sequelize.STRING, allowNull: true },
       is_active: { type: Sequelize.BOOLEAN, defaultValue: true },
+      api_key: { type: DataTypes.STRING, allowNull: true },
       is_deleted: { type: Sequelize.BOOLEAN, defaultValue: false },
       category_id: {
         type: Sequelize.INTEGER,

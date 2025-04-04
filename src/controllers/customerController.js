@@ -31,13 +31,15 @@ exports.getAllCustomers = async (req, res) => {
       category_id,
       search = "",
       order = "asc",
+      alphabet,
     } = req.query;
     const result = await customerService.getAllCustomers(
       Number(page),
       Number(limit),
       category_id,
       search,
-      order
+      order,
+      alphabet
     );
     res.json(result);
   } catch (error) {

@@ -18,22 +18,31 @@ exports.getAllCustomers = async (
   limit = 10,
   categoryId = null,
   searchTerm = "",
-  order
+  order = "asc",
+  alphabet = ""
 ) => {
   const offset = page * limit;
   const whereCondition = {};
+
   if (categoryId) {
     whereCondition.category_id = categoryId;
   }
+
+  // If a search term is provided, use that for filtering.
   if (searchTerm) {
     whereCondition.profile_name = { [Op.like]: `%${searchTerm}%` };
+  } else if (alphabet) {
+    // Otherwise, if an alphabet filter is provided, match only if the name starts with that letter.
+    whereCondition.profile_name = { [Op.like]: `${alphabet}%` };
   }
+
   const { rows: customers, count } = await Customer.findAndCountAll({
     where: whereCondition,
     offset,
     limit,
-    order: [["profile_name", order]], // order results by profile_name in the specified order
+    order: [["profile_name", order]],
   });
+
   return { customers, total: count, page, limit };
 };
 

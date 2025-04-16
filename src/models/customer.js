@@ -3,7 +3,7 @@ const sequelize = require("../config/database");
 const User = require("./user");
 const CustomerCategory = require("./customerCategory");
 
-class Customer extends Model {}
+class Customer extends Model { }
 
 Customer.init(
   {
@@ -21,7 +21,7 @@ Customer.init(
     whatsapp_number: { type: DataTypes.STRING, allowNull: false, unique: true },
     profile_name: { type: DataTypes.STRING, allowNull: true },
     gender: {
-      type: DataTypes.ENUM("male", "female","not_set"),
+      type: DataTypes.ENUM("male", "female", "not_set"),
       allowNull: false,
       defaultValue: "not_set",
     },

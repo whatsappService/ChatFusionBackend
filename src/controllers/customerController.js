@@ -4,6 +4,8 @@ const customerCategoryService = require("../services/customerCategoryService");
 
 exports.addCustomer = async (req, res) => {
   try {
+    console.log("addCustomer req.body", req.body);
+    
     const customerData = {
       ...req.body,
       user_id: req.user.id,
@@ -31,8 +33,10 @@ exports.getAllCustomers = async (req, res) => {
       category_id,
       search = "",
       order = "asc",
-      alphabet,
+      alphabet="",
     } = req.query;
+    console.log("getAllCustomers req.query", req.query);
+    
     const result = await customerService.getAllCustomers(
       Number(page),
       Number(limit),

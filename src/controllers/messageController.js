@@ -1,150 +1,122 @@
 const messageService = require("../services/messageService");
 
+/** POST /api/messages/single */
 exports.sendSingleMessage = async (req, res) => {
   try {
-    console.log("📥 Incoming request:", req.body);
-    console.log("📎 Uploaded Files:", req.files);
-    console.log("👤 Authenticated User:", req.user);
-
-    if (!req.user || !req.user.business_id) {
-      return res.status(401).json({
-        data: {
-          success: false,
-          message: "Unauthorized: User not found or business ID missing",
-        },
-      });
+    const bizId = req.user?.business_id;
+    if (!bizId) {
+      console.log("❌ [Controller] Unauthorized single call");
+      return res.status(401).json({ success: false, message: "Unauthorized" });
     }
 
-    const { recipient } = req.body;
-    let { contents } = req.body;
-    const files = req.files || [];
+    console.log("📥 [Controller] sendSingleMessage body:", req.body);
+    let { recipient, contents } = req.body;
 
     if (!recipient) {
-      return res.status(400).json({
-        data: { success: false, message: "Recipient is required" },
-      });
+      console.log("❌ [Controller] Missing recipient");
+      return res
+        .status(400)
+        .json({ success: false, message: "Recipient required" });
     }
-
     if (!contents) {
-      return res.status(400).json({
-        data: { success: false, message: "Message content is required" },
-      });
+      console.log("❌ [Controller] Missing contents");
+      return res
+        .status(400)
+        .json({ success: false, message: "Message required" });
     }
 
-    // ✅ Ensure contents is an array
-    if (!Array.isArray(contents)) {
-      contents = [contents];
-    }
+    contents = Array.isArray(contents) ? contents : [contents];
+    const files = req.files || [];
+    console.log("📎 [Controller] files count:", files.length);
 
-    const response = await messageService.sendSingleMessage(
-      req.user.business_id,
+    const result = await messageService.sendSingleMessage(
+      bizId,
       recipient,
       contents,
       files
     );
+    console.log("✅ [Controller] sendSingleMessage result:", result);
 
-    // ✅ Return failed messages if message not sent
-    if (!response.success) {
-      return res.status(400).json({
-        data: {
+    if (!result.success) {
+      return res
+        .status(400)
+        .json({
           success: false,
-          message: response.message,
-          failedMessages: response.failedMessages || [],
-        },
-      });
+          message: result.message,
+          failed: result.failed,
+        });
     }
-
-    return res.json({
-      data: {
-        success: true,
-        message: response.message,
-      },
-    });
-  } catch (error) {
-    console.error("❌ Error sending message:", error.message);
-    return res.status(500).json({
-      data: {
-        success: false,
-        message: "Failed to send message",
-        error: error.message,
-      },
-    });
+    return res.json({ success: true, message: result.message });
+  } catch (err) {
+    console.error("❌ [Controller] sendSingleMessage error:", err);
+    return res
+      .status(500)
+      .json({ success: false, message: err.message || "Server error" });
   }
 };
 
+/** POST /api/messages/bulk */
 exports.sendBulkMessage = async (req, res) => {
   try {
-    console.log("📥 Bulk message request body:", req.body);
-    console.log("📎 Uploaded Files (global & personal):", req.files);
-    console.log("👤 Authenticated User:", req.user);
-
-    if (!req.user || !req.user.business_id) {
-      return res.status(401).json({
-        data: {
-          success: false,
-          message: "Unauthorized: User not found or business ID missing",
-        },
-      });
+    const bizId = req.user?.business_id;
+    if (!bizId) {
+      console.log("❌ [Controller] Unauthorized bulk call");
+      return res.status(401).json({ success: false, message: "Unauthorized" });
     }
 
-    const { globalMessages, recipientsData } = req.body;
-    // Parse JSON fields since they are sent as strings.
-    let parsedGlobalMessages, parsedRecipientsData;
-    try {
-      parsedGlobalMessages = JSON.parse(globalMessages);
-      parsedRecipientsData = JSON.parse(recipientsData);
-    } catch (parseError) {
-      return res.status(400).json({
-        data: {
-          success: false,
-          message: "Invalid JSON in globalMessages or recipientsData",
-        },
-      });
+    console.log("📥 [Controller] Raw req.body:", req.body);
+    let { globalMessages, recipientsData } = req.body;
+
+    if (typeof globalMessages === "string") {
+      try {
+        globalMessages = JSON.parse(globalMessages);
+      } catch {
+        console.error("❌ Invalid JSON in globalMessages:", globalMessages);
+        return res
+          .status(400)
+          .json({ success: false, message: "Invalid JSON in globalMessages" });
+      }
+    }
+    if (typeof recipientsData === "string") {
+      try {
+        recipientsData = JSON.parse(recipientsData);
+      } catch {
+        console.error("❌ Invalid JSON in recipientsData:", recipientsData);
+        return res
+          .status(400)
+          .json({ success: false, message: "Invalid JSON in recipientsData" });
+      }
     }
 
-    // Ensure globalMessages is an array.
-    if (!Array.isArray(parsedGlobalMessages)) {
-      parsedGlobalMessages = [parsedGlobalMessages];
-    }
+    console.log("🔄 [Controller] Parsed globalMessages:", globalMessages);
+    console.log("🔄 [Controller] Parsed recipientsData:", recipientsData);
 
-    // Files
-    const globalFiles =
-      req.files && req.files.globalFiles ? req.files.globalFiles : [];
-    const personalFiles =
-      req.files && req.files.personalFiles ? req.files.personalFiles : [];
-
-    const response = await messageService.sendBulkMessage(
-      req.user.business_id,
-      parsedGlobalMessages,
-      parsedRecipientsData,
-      globalFiles,
-      personalFiles
+    const globalFiles = req.files?.globalFiles || [];
+    console.log("📎 [Controller] globalFiles count:", globalFiles.length);
+    console.log("Call to sendBulkMessage");
+    
+    const result = await messageService.sendBulkMessage(
+      bizId,
+      globalMessages,
+      recipientsData,
+      globalFiles
     );
+    console.log("✅ [Controller] sendBulkMessage result:", result);
 
-    if (!response.success) {
-      return res.status(400).json({
-        data: {
+    if (!result.success) {
+      return res
+        .status(400)
+        .json({
           success: false,
-          message: response.message,
-          failedMessages: response.failedMessages || [],
-        },
-      });
+          message: result.message,
+          failed: result.failedMessages,
+        });
     }
-
-    return res.json({
-      data: {
-        success: true,
-        message: response.message,
-      },
-    });
-  } catch (error) {
-    console.error("❌ Error sending bulk message:", error.message);
-    return res.status(500).json({
-      data: {
-        success: false,
-        message: "Failed to send bulk message",
-        error: error.message,
-      },
-    });
+    return res.json({ success: true, message: result.message });
+  } catch (err) {
+    console.error("❌ [Controller] sendBulkMessage error:", err);
+    return res
+      .status(500)
+      .json({ success: false, message: err.message || "Server error" });
   }
 };

@@ -1,0 +1,22 @@
+version: "3.8"
+
+services:
+  backend:
+    container_name: chatfusion_backend
+    build: .
+    restart: always
+    ports:
+      - "5550:5550"
+    env_file:
+      - .env.production
+    environment:
+      NODE_ENV: production
+      MYSQL_HOST: mysql_db
+      MYSQL_PORT: 3306
+    networks:
+      - whatsapp_network
+    command: sh -c "npm start"
+
+networks:
+  whatsapp_network:
+    external: true

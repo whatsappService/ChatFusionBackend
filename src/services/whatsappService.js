@@ -18,6 +18,12 @@ const CHATFUSION_CHECK_NUMBER_URL =
   process.env.CHATFUSION_CHECK_NUMBER_URL ||
   "https://chatfusion.murraltd.com/api/whatsapp/check-whatsapp-number";
 
+// New: endpoint to disconnect an active WhatsApp session
+const CHATFUSION_DISCONNECT_URL =
+  process.env.CHATFUSION_DISCONNECT_URL ||
+  "https://chatfusion.murraltd.com/api/whatsapp/disconnect";
+
+
 /**
  * ✅ Get API Key for a user's business
  */
@@ -219,6 +225,80 @@ exports.checkWhatsAppNumber = async (userId, phoneNumber) => {
     );
     throw new Error(
       error.response?.data?.message || "Failed to check WhatsApp number"
+    );
+  }
+};
+/**
+ * Check if a phone number is registered on WhatsApp using ChatFusion API.
+ *
+ * @param {number} userId - The id of the authenticated user.
+ * @param {string} phoneNumber - The phone number to check.
+ * @returns {Object} - The response from the ChatFusion API.
+ */
+exports.checkWhatsAppNumber = async (userId, phoneNumber) => {
+  try {
+    // Retrieve the API key associated with the user's business
+    const apiKey = await this.getApiKeyByUser(userId);
+    if (!apiKey) {
+      throw new Error("API key not found for this business.");
+    }
+
+    // Build the URL using the query parameter 'recipient'
+    const url = `${CHATFUSION_CHECK_NUMBER_URL}?phone=${encodeURIComponent(
+      phoneNumber
+    )}`;
+
+    // Call the ChatFusion API using GET request
+    const response = await axios.get(url, {
+      headers: { "x-api-key": apiKey },
+    });
+
+    return response.data;
+  } catch (error) {
+    console.error(
+      "Error checking WhatsApp number:",
+      error.response?.data || error.message
+    );
+    throw new Error(
+      error.response?.data?.message || "Failed to check WhatsApp number"
+    );
+  }
+};
+
+/**
+ * Disconnect the WhatsApp client associated with a business.
+ *
+ * This helper looks up the API key for the given user and issues a
+ * POST request to the ChatFusion service to disconnect the account.
+ * An optional accountId may be provided to explicitly target a
+ * specific WhatsApp account (e.g., primary vs alternative).  If
+ * omitted, the service will disconnect whichever account is active.
+ *
+ * @param {number} userId - the authenticated user's id
+ * @param {string} [accountId] - optional WhatsApp account id to disconnect
+ * @returns {Object} - the response from the ChatFusion API
+ */
+exports.disconnectFromWhatsApp = async (userId, accountId) => {
+  try {
+    const apiKey = await this.getApiKeyByUser(userId);
+    if (!apiKey) {
+      throw new Error("API key not found for this business.");
+    }
+    const body = {};
+    if (accountId) {
+      body.accountId = accountId;
+    }
+    const response = await axios.post(CHATFUSION_DISCONNECT_URL, body, {
+      headers: { "x-api-key": apiKey },
+    });
+    return response.data;
+  } catch (error) {
+    console.error(
+      "Error disconnecting WhatsApp:",
+      error.response?.data || error.message
+    );
+    throw new Error(
+      error.response?.data?.message || "Failed to disconnect WhatsApp"
     );
   }
 };

@@ -28,4 +28,11 @@ router.post(
   whatsappController.checkWhatsAppNumber
 );
 
+// 🔌 Route to disconnect WhatsApp session
+router.post(
+  "/disconnect",
+  authMiddleware,
+  whatsappController.disconnectWhatsApp
+);
+
 module.exports = router;

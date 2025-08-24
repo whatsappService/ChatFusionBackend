@@ -99,3 +99,24 @@ exports.checkWhatsAppNumber = async (req, res) => {
     });
   }
 };
+/**
+ * 🔌 Disconnect the currently connected WhatsApp session.
+ *
+ * Accepts an optional `accountId` in the request body to target a
+ * specific WhatsApp account (primary vs alternative).  Delegates the
+ * actual disconnect call to the service layer and returns the
+ * resulting response to the client.
+ */
+exports.disconnectWhatsApp = async (req, res) => {
+  try {
+    const { accountId } = req.body;
+    const result = await whatsappService.disconnectFromWhatsApp(
+      req.user.id,
+      accountId
+    );
+    res.json(result);
+  } catch (error) {
+    console.error("Error disconnecting WhatsApp account:", error);
+    res.status(400).json({ success: false, message: error.message });
+  }
+};

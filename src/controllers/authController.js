@@ -3,8 +3,8 @@ const authService = require("../services/authService");
 exports.login = async (req, res) => {
   try {
     const { email_address, password } = req.body;
-    const authData = await authService.login(email_address, password);
-    res.json(authData);
+    const payload = await authService.login(email_address, password);
+    res.json(payload); // payload includes tokens, user, features, overrides, toggles
   } catch (error) {
     res.status(401).json({ error: error.message });
   }
@@ -12,9 +12,8 @@ exports.login = async (req, res) => {
 
 exports.register = async (req, res) => {
   try {
-    const userData = req.body;
-    const newUser = await authService.register(userData);
-    res.status(201).json(newUser);
+    const payload = await authService.register(req.body);
+    res.status(201).json(payload);
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
@@ -32,8 +31,8 @@ exports.refreshToken = async (req, res) => {
 
 exports.getAuthUser = async (req, res) => {
   try {
-    const user = await authService.getAuthUser(req.user.id);
-    res.json(user);
+    const payload = await authService.getAuthUser(req.user.id);
+    res.json(payload); // same rich payload as login
   } catch (error) {
     res.status(404).json({ error: error.message });
   }

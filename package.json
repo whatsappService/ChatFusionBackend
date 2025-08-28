@@ -14,18 +14,23 @@
     "rollback:prod": "NODE_ENV=production npx sequelize-cli db:migrate:undo:all --config src/config/config.js"
   },
   "dependencies": {
+    "axios": "^1.11.0",
     "bcryptjs": "^2.4.3",
+    "bullmq": "^5.58.2",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "exceljs": "^4.4.0",
     "express": "^4.17.1",
+    "ioredis": "^5.7.0",
     "jsonwebtoken": "^9.0.0",
+    "luxon": "^3.7.1",
     "morgan": "^1.10.0",
     "mqtt": "^4.3.7",
     "multer": "^1.4.5-lts.1",
     "mysql2": "^3.2.4",
     "selenium-webdriver": "^4.15.0",
     "sequelize": "^6.31.0",
+    "uuid": "^11.1.0",
     "winston": "^3.8.2",
     "xlsx": "^0.18.5"
   },

@@ -1,34 +1,32 @@
 // src/middleware/requirePermission.js
 "use strict";
-const { getUserPermissions, match } = require("../utils/acl");
 
+const { checkPermission } = require("../utils/acl");
+
+/**
+ * Usage:
+ *   requirePermission("whatsapp.manage")
+ *   requirePermission(["analytics.view", "reports.export"])  // OR logic
+ *
+ * Reads:
+ *   - req.user.roles  (array)
+ *   - req.ctx.permissionOverrides or req.user.permission_overrides (optional)
+ *     shape: { allow?: string[], deny?: string[] }
+ */
 module.exports = function requirePermission(required) {
   const requiredList = Array.isArray(required) ? required : [required];
 
-  return (req, res, next) => {
+  return function (req, res, next) {
     try {
       const roles = Array.isArray(req.user?.roles) ? req.user.roles : [];
-      // If you store per-user overrides anywhere (e.g. req.user.permission_overrides), pass them here:
-      const { allow, deny } = getUserPermissions(
-        roles /*, req.user.permission_overrides*/
+
+      // normalize overrides if present
+      const overrides =
+        req.ctx?.permissionOverrides ?? req.user?.permission_overrides ?? null;
+
+      const pass = requiredList.some((perm) =>
+        checkPermission({ roles, overrides }, perm)
       );
-
-      // Deny wins
-      const denied = requiredList.some((need) => {
-        for (const d of deny) if (match(d, need)) return true;
-        return false;
-      });
-      if (denied) {
-        return res
-          .status(403)
-          .json({ error: "PermissionDenied", reason: "explicit_deny" });
-      }
-
-      // ANY required permission allowed
-      const pass = requiredList.some((need) => {
-        for (const a of allow) if (match(a, need)) return true;
-        return false;
-      });
 
       if (!pass) {
         return res.status(403).json({
@@ -40,8 +38,8 @@ module.exports = function requirePermission(required) {
       }
 
       next();
-    } catch (e) {
-      next(e);
+    } catch (err) {
+      next(err);
     }
   };
 };

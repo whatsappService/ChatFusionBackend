@@ -47,6 +47,8 @@ router.use("/customer-categories", customerCategoryRoutes);
 // Messaging
 router.use("/message-templates", messageTemplateRoutes);
 router.use("/messages", messageRoutes);
+router.use("/messaging", messageRoutes);
+
 router.use("/schedules", scheduleRoutes);
 
 // Integrations / Ops

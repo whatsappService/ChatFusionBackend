@@ -1,3 +1,4 @@
+// src/models/associations.js
 "use strict";
 
 // Core models
@@ -26,7 +27,7 @@ const ScheduledMessage = require("./scheduledMessage");
 // Business ↔ BusinessCategory
 Business.belongsTo(BusinessCategory, {
   foreignKey: "category_id",
-  as: "category", // keep this alias for Business
+  as: "category",
 });
 BusinessCategory.hasMany(Business, {
   foreignKey: "category_id",
@@ -35,63 +36,145 @@ BusinessCategory.hasMany(Business, {
 
 // User ↔ Business
 User.belongsTo(Business, { foreignKey: "business_id", as: "business" });
-Business.hasMany(User,   { foreignKey: "business_id", as: "users" });
+Business.hasMany(User, { foreignKey: "business_id", as: "users" });
 
 /* =========================
  * Feature flags
  * =======================*/
 
 // Business-level toggles
-BusinessFeature.belongsTo(Business, { foreignKey: "business_id", as: "business", onDelete: "CASCADE", onUpdate: "CASCADE" });
-BusinessFeature.belongsTo(Feature,  { foreignKey: "feature_id",  as: "feature",  onDelete: "CASCADE", onUpdate: "CASCADE" });
-Business.hasMany(BusinessFeature,   { foreignKey: "business_id", as: "featureToggles" });
+BusinessFeature.belongsTo(Business, {
+  foreignKey: "business_id",
+  as: "business",
+  onDelete: "CASCADE",
+  onUpdate: "CASCADE",
+});
+BusinessFeature.belongsTo(Feature, {
+  foreignKey: "feature_id",
+  as: "feature",
+  onDelete: "CASCADE",
+  onUpdate: "CASCADE",
+});
+Business.hasMany(BusinessFeature, {
+  foreignKey: "business_id",
+  as: "featureToggles",
+});
 
 // Many-to-many: Business ↔ Feature
-Business.belongsToMany(Feature,     { through: BusinessFeature, foreignKey: "business_id", otherKey: "feature_id", as: "features" });
-Feature.belongsToMany(Business,     { through: BusinessFeature, foreignKey: "feature_id",  otherKey: "business_id", as: "businesses" });
+Business.belongsToMany(Feature, {
+  through: BusinessFeature,
+  foreignKey: "business_id",
+  otherKey: "feature_id",
+  as: "features",
+});
+Feature.belongsToMany(Business, {
+  through: BusinessFeature,
+  foreignKey: "feature_id",
+  otherKey: "business_id",
+  as: "businesses",
+});
 
 // User-level overrides
-UserFeature.belongsTo(User,   { foreignKey: "user_id",    as: "user",    onDelete: "CASCADE", onUpdate: "CASCADE" });
-UserFeature.belongsTo(Feature,{ foreignKey: "feature_id", as: "feature", onDelete: "CASCADE", onUpdate: "CASCADE" });
-User.hasMany(UserFeature,     { foreignKey: "user_id",    as: "featureOverrides" });
+UserFeature.belongsTo(User, {
+  foreignKey: "user_id",
+  as: "user",
+  onDelete: "CASCADE",
+  onUpdate: "CASCADE",
+});
+UserFeature.belongsTo(Feature, {
+  foreignKey: "feature_id",
+  as: "feature",
+  onDelete: "CASCADE",
+  onUpdate: "CASCADE",
+});
+User.hasMany(UserFeature, {
+  foreignKey: "user_id",
+  as: "featureOverrides",
+});
 
-// Optional many-to-many: User ↔ Feature
-// User ↔ Feature through UserFeature
-User.belongsToMany(Feature, { through: UserFeature, foreignKey: "user_id", otherKey: "feature_id", as: "features" });
-Feature.belongsToMany(User,   { through: UserFeature, foreignKey: "feature_id", otherKey: "user_id",   as: "users" });
+// Optional many-to-many: User ↔ Feature via UserFeature
+User.belongsToMany(Feature, {
+  through: UserFeature,
+  foreignKey: "user_id",
+  otherKey: "feature_id",
+  as: "features",
+});
+Feature.belongsToMany(User, {
+  through: UserFeature,
+  foreignKey: "feature_id",
+  otherKey: "user_id",
+  as: "users",
+});
 
 /* =========================
  * Scheduling
  * =======================*/
+ScheduledMessage.belongsTo(Business, {
+  foreignKey: "business_id",
+  as: "business",
+  onDelete: "CASCADE",
+  onUpdate: "CASCADE",
+});
+ScheduledMessage.belongsTo(User, {
+  foreignKey: "created_by_user",
+  as: "creator",
+  onDelete: "SET NULL",
+  onUpdate: "CASCADE",
+});
 
-ScheduledMessage.belongsTo(Business, { foreignKey: "business_id",     as: "business", onDelete: "CASCADE",  onUpdate: "CASCADE" });
-ScheduledMessage.belongsTo(User,     { foreignKey: "created_by_user", as: "creator",  onDelete: "SET NULL", onUpdate: "CASCADE" });
-
-Business.hasMany(ScheduledMessage,   { foreignKey: "business_id",     as: "scheduledMessages" });
-User.hasMany(ScheduledMessage,       { foreignKey: "created_by_user", as: "createdSchedules" });
+Business.hasMany(ScheduledMessage, {
+  foreignKey: "business_id",
+  as: "scheduledMessages",
+});
+User.hasMany(ScheduledMessage, {
+  foreignKey: "created_by_user",
+  as: "createdSchedules",
+});
 
 /* =========================
  * Customers & templates
  * =======================*/
 
-// Use explicit alias so it doesn't collide with Business's "category"
+// CustomerCategory ↔ User (owner)
 CustomerCategory.belongsTo(User, { foreignKey: "user_id", as: "owner" });
-User.hasMany(CustomerCategory,   { foreignKey: "user_id", as: "customerCategories" });
+User.hasMany(CustomerCategory, {
+  foreignKey: "user_id",
+  as: "customerCategories",
+});
 
-Customer.belongsTo(User,             { foreignKey: "user_id",     as: "owner" });
-Customer.belongsTo(CustomerCategory, { foreignKey: "category_id", as: "customerCategory" }); // <— renamed
-User.hasMany(Customer,               { foreignKey: "user_id",     as: "customers" });
-CustomerCategory.hasMany(Customer,   { foreignKey: "category_id", as: "customers" });
+// Customer ↔ User & Category
+Customer.belongsTo(User, { foreignKey: "user_id", as: "owner" });
+Customer.belongsTo(CustomerCategory, {
+  foreignKey: "category_id",
+  as: "customerCategory",
+});
+User.hasMany(Customer, { foreignKey: "user_id", as: "customers" });
+CustomerCategory.hasMany(Customer, {
+  foreignKey: "category_id",
+  as: "customers",
+});
 
-// MessageTemplate belongs to BusinessCategory too — give it a distinct alias as well
-MessageTemplate.belongsTo(User,             { foreignKey: "user_id",     as: "owner" });
-MessageTemplate.belongsTo(BusinessCategory, { foreignKey: "category_id", as: "businessCategory" }); // <— renamed
-User.hasMany(MessageTemplate,               { foreignKey: "user_id",     as: "templates" });
-BusinessCategory.hasMany(MessageTemplate,   { foreignKey: "category_id", as: "templates" });
+// MessageTemplate ↔ User(owner) & BusinessCategory
+MessageTemplate.belongsTo(User, { foreignKey: "user_id", as: "owner" });
+MessageTemplate.belongsTo(BusinessCategory, {
+  foreignKey: "category_id",
+  as: "businessCategory",
+});
+User.hasMany(MessageTemplate, { foreignKey: "user_id", as: "templates" });
+BusinessCategory.hasMany(MessageTemplate, {
+  foreignKey: "category_id",
+  as: "templates",
+});
 
-// Reports
+// Report ↔ User(owner)
 Report.belongsTo(User, { foreignKey: "user_id", as: "owner" });
-User.hasMany(Report,   { foreignKey: "user_id", as: "reports" });
+User.hasMany(Report, { foreignKey: "user_id", as: "reports" });
+
+/* =========================
+ * Initialize scopes after wiring
+ * =======================*/
+if (typeof Business.initScopes === "function") Business.initScopes();
+if (typeof User.initScopes === "function") User.initScopes();
 
 module.exports = {
   User,
@@ -106,3 +189,7 @@ module.exports = {
   UserFeature,
   ScheduledMessage,
 };
+
+/* =========================
+ * END
+ * =======================*/

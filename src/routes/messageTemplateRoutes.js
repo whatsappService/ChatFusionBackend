@@ -1,13 +1,52 @@
+"use strict";
+
 const express = require("express");
 const router = express.Router();
+
 const messageTemplateController = require("../controllers/messageTemplateController");
 const authMiddleware = require("../middleware/authMiddleware");
-// ✅ Add this route to fetch message template categories
-router.get("/categories", messageTemplateController.getTemplateCategories);
-router.post("/", authMiddleware, messageTemplateController.createTemplate);
-router.get("/", authMiddleware, messageTemplateController.getAllTemplates);
-router.get("/:id", messageTemplateController.getTemplateById);
-router.put("/:id", messageTemplateController.updateTemplate);
-router.delete("/:id", messageTemplateController.deleteTemplate);
+const requirePermission = require("../middleware/requirePermission");
+
+router.get(
+  "/categories",
+  authMiddleware,
+  requirePermission("templates.read"),
+  messageTemplateController.getTemplateCategories
+);
+
+router.post(
+  "/",
+  authMiddleware,
+  requirePermission("templates.create"),
+  messageTemplateController.createTemplate
+);
+
+router.get(
+  "/",
+  authMiddleware,
+  requirePermission("templates.read"),
+  messageTemplateController.getAllTemplates
+);
+
+router.get(
+  "/:id",
+  authMiddleware,
+  requirePermission("templates.read"),
+  messageTemplateController.getTemplateById
+);
+
+router.put(
+  "/:id",
+  authMiddleware,
+  requirePermission("templates.update"),
+  messageTemplateController.updateTemplate
+);
+
+router.delete(
+  "/:id",
+  authMiddleware,
+  requirePermission("templates.delete"),
+  messageTemplateController.deleteTemplate
+);
 
 module.exports = router;

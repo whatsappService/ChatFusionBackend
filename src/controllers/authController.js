@@ -1,10 +1,12 @@
+"use strict";
+
 const authService = require("../services/authService");
 
 exports.login = async (req, res) => {
   try {
     const { email_address, password } = req.body;
     const payload = await authService.login(email_address, password);
-    res.json(payload); // payload includes tokens, user, features, overrides, toggles
+    res.json(payload); // tokens, user, features, permissions...
   } catch (error) {
     res.status(401).json({ error: error.message });
   }

@@ -1,3 +1,5 @@
+// src/models/businessCategory.js
+"use strict";
 const { Model, DataTypes } = require("sequelize");
 const sequelize = require("../config/database");
 

@@ -1,22 +1,30 @@
+"use strict";
+
 const express = require("express");
 const router = express.Router();
+
 const historyController = require("../controllers/historyController");
 const authMiddleware = require("../middleware/authMiddleware");
+const requirePermission = require("../middleware/requirePermission");
 
-// Get all user messages (history)
-router.get("/user-messages", authMiddleware, historyController.getUserMessages);
+router.get(
+  "/user-messages",
+  authMiddleware,
+  requirePermission("analytics.view"),
+  historyController.getUserMessages
+);
 
-// Get history between dates
 router.get(
   "/user-history",
   authMiddleware,
+  requirePermission("analytics.view"),
   historyController.getHistoryBetweenDates
 );
 
-// Get messages by history ID
 router.get(
   "/messages-by-history/:historyId",
   authMiddleware,
+  requirePermission("reports.export"),
   historyController.getMessagesByHistory
 );
 

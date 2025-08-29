@@ -6,18 +6,32 @@
   "scripts": {
     "start": "NODE_ENV=production node server.js",
     "dev": "NODE_ENV=development nodemon server.js",
+    "db:create:dev": "NODE_ENV=development npx sequelize-cli db:create --config src/config/config.js",
+    "db:create:prod": "NODE_ENV=production npx sequelize-cli db:create --config src/config/config.js",
     "migrate:dev": "NODE_ENV=development npx sequelize-cli db:migrate --config src/config/config.js --migrations-path src/migrations",
     "migrate:prod": "NODE_ENV=production npx sequelize-cli db:migrate --config src/config/config.js --migrations-path src/migrations",
-    "seed:prod": "NODE_ENV=production npx sequelize-cli db:seed:all --config src/config/config.js --seeders-path src/seeders",
-    "seed:dev": "NODE_ENV=development npx sequelize-cli db:seed:all --config src/config/config.js  --seeders-path src/seeders",
+    "migrate:status:dev": "NODE_ENV=development npx sequelize-cli db:migrate:status --config src/config/config.js --migrations-path src/migrations",
     "rollback:dev": "NODE_ENV=development npx sequelize-cli db:migrate:undo:all --config src/config/config.js --migrations-path src/migrations",
-    "rollback:prod": "NODE_ENV=production npx sequelize-cli db:migrate:undo:all --config src/config/config.js"
+    "rollback:prod": "NODE_ENV=production npx sequelize-cli db:migrate:undo:all --config src/config/config.js --migrations-path src/migrations",
+    "seed:dev:all": "NODE_ENV=development npx sequelize-cli db:seed:all --config src/config/config.js --seeders-path src/seeders",
+    "seed:prod:all": "NODE_ENV=production npx sequelize-cli db:seed:all --config src/config/config.js --seeders-path src/seeders",
+    "seed:dev:initial": "NODE_ENV=development npx sequelize-cli db:seed --config src/config/config.js --seeders-path src/seeders --seed 20250828_120000-initial-seed.js",
+    "seed:dev:undo:initial": "NODE_ENV=development npx sequelize-cli db:seed:undo --config src/config/config.js --seeders-path src/seeders --seed 20250828_120000-initial-seed.js",
+    "seed:dev:redo:initial": "npm run seed:dev:undo:initial && npm run seed:dev:initial",
+    "db:prepare:dev": "npm run db:create:dev && npm run migrate:dev && npm run seed:dev:initial",
+    "db:reset:dev": "npm run rollback:dev && npm run migrate:dev && npm run seed:dev:initial",
+    "reclone:db": "npm run rollback:dev && npm run migrate:dev && npm run seed:dev:initial",
+    "db:drop:dev": "NODE_ENV=development npx sequelize-cli db:drop --config src/config/config.js",
+    "reclone:db:hard": "npm run db:drop:dev && npm run db:create:dev && npm run migrate:dev && npm run seed:dev:initial",
+    "db:reclone:dev": "NODE_ENV=development npm run rollback:dev || true && NODE_ENV=development npx sequelize-cli db:migrate && NODE_ENV=development npx sequelize-cli db:seed --seed 20250828_120000-initial-seed.js"
+
   },
   "dependencies": {
     "axios": "^1.11.0",
     "bcryptjs": "^2.4.3",
     "bullmq": "^5.58.2",
     "cors": "^2.8.5",
+    "cron-parser": "^5.3.0",
     "dotenv": "^16.4.7",
     "exceljs": "^4.4.0",
     "express": "^4.17.1",
@@ -36,6 +50,6 @@
   },
   "devDependencies": {
     "nodemon": "^3.0.0",
-    "sequelize-cli": "^6.4.1"
+    "sequelize-cli": "^6.6.2"
   }
 }

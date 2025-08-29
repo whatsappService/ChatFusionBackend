@@ -2,18 +2,6 @@
 
 const bcrypt = require("bcryptjs");
 
-/**
- * Initial seed for local/dev.
- * - Creates categories (Retail, Tech)
- * - Creates "Super Admin Business"
- * - Creates Super Admin user (env SUPERADMIN_PASSWORD or "password")
- * - Seeds Features (incl. single_messages) and ENABLES ALL for the Super Admin business
- * - Seeds system + user message templates
- * - Seeds customer categories + sample customers
- *
- * Idempotent via INSERT ... ON DUPLICATE KEY UPDATE.
- */
-
 module.exports = {
   up: async (queryInterface, Sequelize) => {
     const qi = queryInterface;
@@ -21,14 +9,18 @@ module.exports = {
     const t = await sequelize.transaction();
 
     try {
-      // Helper: insert-or-get by unique field
-      const insertOrGet = async ({ table, uniqueField, uniqueValue, insertValues }) => {
+      const insertOrGet = async ({
+        table,
+        uniqueField,
+        uniqueValue,
+        insertValues,
+      }) => {
         const cols = Object.keys(insertValues);
         const placeholders = cols.map(() => "?").join(", ");
-        const updates = cols.map(c => `\`${c}\`=VALUES(\`${c}\`)`).join(", ");
+        const updates = cols.map((c) => `\`${c}\`=VALUES(\`${c}\`)`).join(", ");
 
         await sequelize.query(
-          `INSERT INTO \`${table}\` (${cols.map(c => `\`${c}\``).join(", ")})
+          `INSERT INTO \`${table}\` (${cols.map((c) => `\`${c}\``).join(", ")})
            VALUES (${placeholders})
            ON DUPLICATE KEY UPDATE ${updates}`,
           { replacements: Object.values(insertValues), transaction: t }
@@ -46,13 +38,21 @@ module.exports = {
         table: "BusinessCategories",
         uniqueField: "category_name",
         uniqueValue: "Retail",
-        insertValues: { category_name: "Retail", createdAt: new Date(), updatedAt: new Date() },
+        insertValues: {
+          category_name: "Retail",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
       });
       const tech = await insertOrGet({
         table: "BusinessCategories",
         uniqueField: "category_name",
         uniqueValue: "Tech",
-        insertValues: { category_name: "Tech", createdAt: new Date(), updatedAt: new Date() },
+        insertValues: {
+          category_name: "Tech",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
       });
 
       // 2) Business
@@ -103,86 +103,114 @@ module.exports = {
       );
 
       const [superAdminRows] = await sequelize.query(
-        `SELECT * FROM \`Users\` WHERE email_address = ? LIMIT 1`,
+        "SELECT * FROM `Users` WHERE email_address = ? LIMIT 1",
         { replacements: [superAdminEmail], transaction: t }
       );
       const superAdmin = superAdminRows[0];
 
-      // 4) Features (master list) — includes single_messages
+      // 4) Features (master list)
       const features = [
-        ["scheduled_messages", "Scheduled Messages", "Create one-off and recurring schedules"],
-        ["single_messages",   "Single Messages",   "Send immediate one-to-one messages"],
-        ["bulk_send",         "Bulk Send",         "Send to many recipients with pacing"],
+        [
+          "scheduled_messages",
+          "Scheduled Messages",
+          "Create one-off and recurring schedules",
+        ],
+        [
+          "single_messages",
+          "Single Messages",
+          "Send immediate one-to-one messages",
+        ],
+        ["bulk_send", "Bulk Send", "Send to many recipients with pacing"],
         ["media_attachments", "Media Attachments", "Send images, docs, voice"],
-        ["analytics",         "Analytics",         "Delivery stats and charts"],
-        ["api_access",        "API Access",        "Use REST endpoints & tokens"],
-        ["webhooks",          "Webhooks",          "Receive delivery/receipt events"],
-        ["multi_user",        "Multi-user",        "Multiple logins per business"],
-        ["ai_chatbot",        "AI Chatbot",        "Bot replies and flows"],
+        ["analytics", "Analytics", "Delivery stats and charts"],
+        ["api_access", "API Access", "Use REST endpoints & tokens"],
+        ["webhooks", "Webhooks", "Receive delivery/receipt events"],
+        ["multi_user", "Multi-user", "Multiple logins per business"],
+        ["ai_chatbot", "AI Chatbot", "Bot replies and flows"],
       ];
 
       for (const [code, name, description] of features) {
         await sequelize.query(
           `INSERT INTO \`Features\` (code, name, description, createdAt, updatedAt)
            VALUES (?, ?, ?, NOW(), NOW())
-           ON DUPLICATE KEY UPDATE
-             name=VALUES(name), description=VALUES(description), updatedAt=VALUES(updatedAt)`,
+           ON DUPLICATE KEY UPDATE name=VALUES(name), description=VALUES(description), updatedAt=VALUES(updatedAt)`,
           { replacements: [code, name, description], transaction: t }
         );
       }
 
       const [featRows] = await sequelize.query(
-        `SELECT id, code FROM \`Features\``,
+        "SELECT id, code FROM `Features`",
         { transaction: t }
       );
-      const featureMap = Object.fromEntries(featRows.map(r => [r.code, r.id]));
+      const featureMap = Object.fromEntries(
+        featRows.map((r) => [r.code, r.id])
+      );
 
-      // 5) ENABLE ALL features for the Super Admin business
-      //    - Optional: set a quota for bulk_send
+      // 5) Enable all features for the business
       for (const code of Object.keys(featureMap)) {
         const fid = featureMap[code];
-        const limit =
-          code === "bulk_send" ? 36000 : null; // change/remove as you like
+        const limit = code === "bulk_send" ? 36000 : null;
         await sequelize.query(
           `INSERT INTO \`BusinessFeatures\`
             (business_id, feature_id, enabled, limit_value, meta_json, createdAt, updatedAt)
            VALUES (?, ?, 1, ?, NULL, NOW(), NOW())
-           ON DUPLICATE KEY UPDATE
-             enabled=VALUES(enabled),
-             limit_value=VALUES(limit_value),
-             updatedAt=VALUES(updatedAt)`,
+           ON DUPLICATE KEY UPDATE enabled=VALUES(enabled), limit_value=VALUES(limit_value), updatedAt=VALUES(updatedAt)`,
           { replacements: [superBusiness.id, fid, limit], transaction: t }
         );
       }
 
-      // 6) System templates (user_id = NULL)
+      // 5b) Per-user feature rows (inherit → enabled=NULL)
+      for (const code of Object.keys(featureMap)) {
+        const fid = featureMap[code];
+        await sequelize.query(
+          `INSERT INTO \`UserFeatures\`
+            (user_id, feature_id, enabled, limit_value, meta_json, createdAt, updatedAt)
+           VALUES (?, ?, NULL, NULL, NULL, NOW(), NOW())
+           ON DUPLICATE KEY UPDATE enabled=VALUES(enabled), limit_value=VALUES(limit_value), meta_json=VALUES(meta_json), updatedAt=VALUES(updatedAt)`,
+          { replacements: [superAdmin.id, fid], transaction: t }
+        );
+      }
+
+      // 6) System templates
       const systemTemplates = [
         {
           category_id: retail.id,
           template_name: "Order Confirmation",
-          message_ar: "مرحبًا {name}، تم تأكيد طلبك لدى {business_name} بسعر {price}. شكراً لك!",
-          message_en: "Hello {name}, your order at {business_name} is confirmed at {price}. Thank you!",
-          placeholders: JSON.stringify(["{name}", "{business_name}", "{price}"]),
+          message_ar:
+            "مرحبًا {name}، تم تأكيد طلبك لدى {business_name} بسعر {price}. شكراً لك!",
+          message_en:
+            "Hello {name}, your order at {business_name} is confirmed at {price}. Thank you!",
+          placeholders: JSON.stringify([
+            "{name}",
+            "{business_name}",
+            "{price}",
+          ]),
         },
         {
           category_id: tech.id,
           template_name: "Discount Offer",
-          message_ar: "مرحبًا {name}، لدينا عرض خاص! السعر الأصلي {price}، والسعر المخفض {offer_price}. انتهز الفرصة!",
-          message_en: "Hello {name}, we have a special offer! Original price {price}, discounted price {offer_price}. Grab it now!",
+          message_ar:
+            "مرحبًا {name}، لدينا عرض خاص! السعر الأصلي {price}، والسعر المخفض {offer_price}. انتهز الفرصة!",
+          message_en:
+            "Hello {name}, we have a special offer! Original price {price}, discounted price {offer_price}. Grab it now!",
           placeholders: JSON.stringify(["{name}", "{price}", "{offer_price}"]),
         },
         {
           category_id: retail.id,
           template_name: "Payment Reminder",
-          message_ar: "مرحبًا {name}، هذا تذكير بدفعتك المستحقة لشركة {business_name}. يرجى الدفع قبل {date}.",
-          message_en: "Hello {name}, this is a reminder for your due payment at {business_name}. Please pay before {date}.",
+          message_ar:
+            "مرحبًا {name}، هذا تذكير بدفعتك المستحقة لشركة {business_name}. يرجى الدفع قبل {date}.",
+          message_en:
+            "Hello {name}, this is a reminder for your due payment at {business_name}. Please pay before {date}.",
           placeholders: JSON.stringify(["{name}", "{business_name}", "{date}"]),
         },
         {
           category_id: tech.id,
           template_name: "Subscription Renewal",
-          message_ar: "مرحبًا {name}، اشتراكك في {business_name} سينتهي في {date}. يرجى التجديد لتجنب الانقطاع.",
-          message_en: "Hello {name}, your subscription with {business_name} will expire on {date}. Please renew to avoid disruption.",
+          message_ar:
+            "مرحبًا {name}، اشتراكك في {business_name} سينتهي في {date}. يرجى التجديد لتجنب الانقطاع.",
+          message_en:
+            "Hello {name}, your subscription with {business_name} will expire on {date}. Please renew to avoid disruption.",
           placeholders: JSON.stringify(["{name}", "{business_name}", "{date}"]),
         },
       ];
@@ -192,23 +220,22 @@ module.exports = {
           `INSERT INTO \`MessageTemplates\`
             (user_id, category_id, template_name, message_ar, message_en, placeholders, createdAt, updatedAt)
            VALUES (NULL, ?, ?, ?, ?, ?, NOW(), NOW())
-           ON DUPLICATE KEY UPDATE
-             message_ar=VALUES(message_ar),
-             message_en=VALUES(message_en),
-             placeholders=VALUES(placeholders),
-             updatedAt=VALUES(updatedAt)`,
+           ON DUPLICATE KEY UPDATE message_ar=VALUES(message_ar), message_en=VALUES(message_en), placeholders=VALUES(placeholders), updatedAt=VALUES(updatedAt)`,
           {
             replacements: [
-              tpl.category_id, tpl.template_name, tpl.message_ar, tpl.message_en, tpl.placeholders,
+              tpl.category_id,
+              tpl.template_name,
+              tpl.message_ar,
+              tpl.message_en,
+              tpl.placeholders,
             ],
             transaction: t,
           }
         );
       }
 
-      // 7) Customer categories for Super Admin user
-      const customerCategories = ["Regular", "VIP", "Wholesale"];
-      for (const name of customerCategories) {
+      // 7) Customer categories
+      for (const name of ["Regular", "VIP", "Wholesale"]) {
         await sequelize.query(
           `INSERT INTO \`CustomerCategories\` (user_id, name, createdAt, updatedAt)
            VALUES (?, ?, NOW(), NOW())
@@ -218,29 +245,45 @@ module.exports = {
       }
 
       const [catRows] = await sequelize.query(
-        `SELECT id, name FROM \`CustomerCategories\` WHERE user_id = ?`,
+        "SELECT id, name FROM `CustomerCategories` WHERE user_id = ?",
         { replacements: [superAdmin.id], transaction: t }
       );
-      const catMap = Object.fromEntries(catRows.map(r => [r.name, r.id]));
+      const catMap = Object.fromEntries(catRows.map((r) => [r.name, r.id]));
 
-      // 8) Sample customers
+      // 8) Customers
       const customers = [
-        { whatsapp_number: "+1234567890", profile_name: "John Doe",  gender: "male",   status: "verified",   category_id: catMap["Regular"] },
-        { whatsapp_number: "+9876543210", profile_name: "Jane Smith", gender: "female", status: "unverified", category_id: catMap["VIP"] },
+        {
+          whatsapp_number: "+1234567890",
+          profile_name: "John Doe",
+          gender: "male",
+          status: "verified",
+          category_id: catMap["Regular"],
+        },
+        {
+          whatsapp_number: "+9876543210",
+          profile_name: "Jane Smith",
+          gender: "female",
+          status: "unverified",
+          category_id: catMap["VIP"],
+        },
       ];
-
       for (const c of customers) {
         await sequelize.query(
           `INSERT INTO \`Customers\`
             (user_id, category_id, whatsapp_number, profile_name, gender, status, createdAt, updatedAt)
            VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())
-           ON DUPLICATE KEY UPDATE
-             profile_name=VALUES(profile_name),
-             category_id=VALUES(category_id),
-             gender=VALUES(gender),
-             status=VALUES(status),
-             updatedAt=VALUES(updatedAt)`,
-          { replacements: [superAdmin.id, c.category_id, c.whatsapp_number, c.profile_name, c.gender, c.status], transaction: t }
+           ON DUPLICATE KEY UPDATE profile_name=VALUES(profile_name), category_id=VALUES(category_id), gender=VALUES(gender), status=VALUES(status), updatedAt=VALUES(updatedAt)`,
+          {
+            replacements: [
+              superAdmin.id,
+              c.category_id,
+              c.whatsapp_number,
+              c.profile_name,
+              c.gender,
+              c.status,
+            ],
+            transaction: t,
+          }
         );
       }
 
@@ -263,9 +306,14 @@ module.exports = {
         {
           category_id: retail.id,
           template_name: "Discount Offer",
-          message_ar: "عرض خاص! احصل على خصم 20% على جميع المنتجات هذا الأسبوع.",
+          message_ar:
+            "عرض خاص! احصل على خصم 20% على جميع المنتجات هذا الأسبوع.",
           message_en: "Special Offer! Get 20% off on all products this week.",
-          placeholders: JSON.stringify(["{name}", "{offer_price}", "{valid_until}"]),
+          placeholders: JSON.stringify([
+            "{name}",
+            "{offer_price}",
+            "{valid_until}",
+          ]),
         },
         {
           category_id: tech.id,
@@ -275,20 +323,94 @@ module.exports = {
           placeholders: JSON.stringify([]),
         },
       ];
-
       for (const tpl of userTemplates) {
         await sequelize.query(
           `INSERT INTO \`MessageTemplates\`
             (user_id, category_id, template_name, message_ar, message_en, placeholders, createdAt, updatedAt)
            VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())
-           ON DUPLICATE KEY UPDATE
-             message_ar=VALUES(message_ar),
-             message_en=VALUES(message_en),
-             placeholders=VALUES(placeholders),
-             updatedAt=VALUES(updatedAt)`,
+           ON DUPLICATE KEY UPDATE message_ar=VALUES(message_ar), message_en=VALUES(message_en), placeholders=VALUES(placeholders), updatedAt=VALUES(updatedAt)`,
           {
             replacements: [
-              superAdmin.id, tpl.category_id, tpl.template_name, tpl.message_ar, tpl.message_en, tpl.placeholders,
+              superAdmin.id,
+              tpl.category_id,
+              tpl.template_name,
+              tpl.message_ar,
+              tpl.message_en,
+              tpl.placeholders,
+            ],
+            transaction: t,
+          }
+        );
+      }
+
+      // 10) Scheduled messages samples
+      const now = new Date();
+      const in20m = new Date(now.getTime() + 20 * 60 * 1000);
+      const in5m = new Date(now.getTime() + 5 * 60 * 1000);
+
+      const samples = [
+        {
+          id: "c0ffee00-0000-4000-8000-000000000001",
+          business_id: superBusiness.id,
+          created_by_user: superAdmin.id,
+          to_number: "+15550123456",
+          body: "Hello from seed! (ONE_OFF) See you soon.",
+          media_url: null,
+          variables_json: JSON.stringify({ name: "Seed User" }),
+          type: "ONE_OFF",
+          send_at_utc: in20m,
+          cron_expr: null,
+          timezone: "Asia/Hebron",
+          status: "ACTIVE",
+          last_run_at: null,
+          next_run_at: in20m,
+          max_attempts: 3,
+        },
+        {
+          id: "c0ffee00-0000-4000-8000-000000000002",
+          business_id: superBusiness.id,
+          created_by_user: superAdmin.id,
+          to_number: "+15550987654",
+          body: "Hello from seed! (CRON */5 * * * *)",
+          media_url: null,
+          variables_json: JSON.stringify({ campaign: "welcome" }),
+          type: "CRON",
+          send_at_utc: null,
+          cron_expr: "*/5 * * * *",
+          timezone: "Asia/Hebron",
+          status: "ACTIVE",
+          last_run_at: null,
+          next_run_at: in5m,
+          max_attempts: 3,
+        },
+      ];
+
+      for (const s of samples) {
+        await sequelize.query(
+          `INSERT INTO \`ScheduledMessages\`
+            (id, business_id, created_by_user, to_number, body, media_url, variables_json, type, send_at_utc, cron_expr, timezone, status, last_run_at, next_run_at, max_attempts, createdAt, updatedAt)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+           ON DUPLICATE KEY UPDATE business_id=VALUES(business_id), created_by_user=VALUES(created_by_user), to_number=VALUES(to_number),
+             body=VALUES(body), media_url=VALUES(media_url), variables_json=VALUES(variables_json), type=VALUES(type), send_at_utc=VALUES(send_at_utc),
+             cron_expr=VALUES(cron_expr), timezone=VALUES(timezone), status=VALUES(status), last_run_at=VALUES(last_run_at), next_run_at=VALUES(next_run_at),
+             max_attempts=VALUES(max_attempts), updatedAt=VALUES(updatedAt)`,
+          {
+            replacements: [
+              s.id,
+              s.business_id,
+              s.created_by_user,
+              s.to_number,
+              s.body,
+              s.media_url,
+              s.variables_json,
+              s.type,
+              s.send_at_utc,
+              s.cron_expr,
+              s.timezone,
+              s.status,
+              s.last_run_at,
+              s.next_run_at,
+              s.max_attempts,
             ],
             transaction: t,
           }
@@ -302,13 +424,20 @@ module.exports = {
     }
   },
 
-  down: async (queryInterface, Sequelize) => {
-    const qi = queryInterface;
-    const sequelize = qi.sequelize;
+  down: async (queryInterface) => {
+    const sequelize = queryInterface.sequelize;
     const t = await sequelize.transaction();
-
     try {
-      // Delete dependent data first
+      await sequelize.query(
+        "DELETE FROM `ScheduledMessages` WHERE id IN (?, ?)",
+        {
+          replacements: [
+            "c0ffee00-0000-4000-8000-000000000001",
+            "c0ffee00-0000-4000-8000-000000000002",
+          ],
+          transaction: t,
+        }
+      );
       await sequelize.query(
         `DELETE mt FROM \`MessageTemplates\` mt
          LEFT JOIN \`Users\` u ON mt.user_id = u.id
@@ -316,46 +445,50 @@ module.exports = {
         { replacements: ["superadmin@superadmin.com"], transaction: t }
       );
       await sequelize.query(
-        `DELETE FROM \`Customers\` WHERE user_id IN (SELECT id FROM \`Users\` WHERE email_address = ?)`,
+        "DELETE FROM `Customers` WHERE user_id IN (SELECT id FROM `Users` WHERE email_address = ?)",
         { replacements: ["superadmin@superadmin.com"], transaction: t }
       );
       await sequelize.query(
-        `DELETE FROM \`CustomerCategories\` WHERE user_id IN (SELECT id FROM \`Users\` WHERE email_address = ?)`,
+        "DELETE FROM `CustomerCategories` WHERE user_id IN (SELECT id FROM `Users` WHERE email_address = ?)",
         { replacements: ["superadmin@superadmin.com"], transaction: t }
       );
-
-      // Remove all BusinessFeatures for the Super Admin business
       await sequelize.query(
-        `DELETE FROM \`BusinessFeatures\` WHERE business_id IN (SELECT id FROM \`Businesses\` WHERE business_name = ?)`,
+        "DELETE FROM `UserFeatures` WHERE user_id IN (SELECT id FROM `Users` WHERE email_address = ?)",
+        { replacements: ["superadmin@superadmin.com"], transaction: t }
+      );
+      await sequelize.query(
+        "DELETE FROM `BusinessFeatures` WHERE business_id IN (SELECT id FROM `Businesses` WHERE business_name = ?)",
         { replacements: ["Super Admin Business"], transaction: t }
       );
-
-      // Remove super admin & business
+      await sequelize.query("DELETE FROM `Users` WHERE email_address = ?", {
+        replacements: ["superadmin@superadmin.com"],
+        transaction: t,
+      });
       await sequelize.query(
-        `DELETE FROM \`Users\` WHERE email_address = ?`,
-        { replacements: ["superadmin@superadmin.com"], transaction: t }
-      );
-      await sequelize.query(
-        `DELETE FROM \`Businesses\` WHERE business_name = ?`,
+        "DELETE FROM `Businesses` WHERE business_name = ?",
         { replacements: ["Super Admin Business"], transaction: t }
       );
-
-      // Remove only the features we seeded (by code list)
-      const codes = [
-        "scheduled_messages","single_messages","bulk_send","media_attachments",
-        "analytics","api_access","webhooks","multi_user","ai_chatbot"
-      ];
       await sequelize.query(
-        `DELETE FROM \`Features\` WHERE code IN (${codes.map(() => "?").join(",")})`,
-        { replacements: codes, transaction: t }
+        "DELETE FROM `Features` WHERE code IN (?,?,?,?,?,?,?,?,?)",
+        {
+          replacements: [
+            "scheduled_messages",
+            "single_messages",
+            "bulk_send",
+            "media_attachments",
+            "analytics",
+            "api_access",
+            "webhooks",
+            "multi_user",
+            "ai_chatbot",
+          ],
+          transaction: t,
+        }
       );
-
-      // Remove categories
       await sequelize.query(
-        `DELETE FROM \`BusinessCategories\` WHERE category_name IN (?, ?)`,
+        "DELETE FROM `BusinessCategories` WHERE category_name IN (?, ?)",
         { replacements: ["Retail", "Tech"], transaction: t }
       );
-
       await t.commit();
     } catch (err) {
       await t.rollback();

@@ -24,11 +24,18 @@ if (!API_BASE) {
  */
 exports.fetchUserMessages = async (userId, queryParams) => {
   // Look up the business record for this user
-  const business = await Business.findOne({ where: { id: userId } });
-  if (!business || !business.api_key) {
-    throw new Error("API key not found for this business");
-  }
-  logger.info("Business API key:", business.api_key);
+  // const business = await Business.findOne({ where: { id: userId } });
+  // if (!business || !business.api_key) {
+  //   throw new Error("API key not found for this business");
+  // }
+  // logger.info("Business API key:", business.api_key);
+  // const url = `${API_BASE}/history/user-messages`;
+
+  const user = await User.findByPk(userId, {
+    include: { model: Business, as: "business" },
+  });
+  const apiKey = user?.business?.api_key;
+  if (!apiKey) throw new Error("API key not found for this business");
   const url = `${API_BASE}/history/user-messages`;
   logger.info("Fetching user messages from:", url);
 

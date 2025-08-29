@@ -19,6 +19,7 @@ exports.createCategory = async (data) => {
   return await CustomerCategory.create(data);
 };
 
+
 exports.updateCategory = async (id, data) => {
   const category = await CustomerCategory.findByPk(id);
   if (!category) throw new Error("Category not found");

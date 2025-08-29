@@ -1,32 +1,72 @@
+"use strict";
+
 const express = require("express");
 const router = express.Router();
+const multer = require("multer");
+
 const customerController = require("../controllers/customerController");
 const authMiddleware = require("../middleware/authMiddleware");
-const multer = require("multer");
+const requirePermission = require("../middleware/requirePermission");
+
 const upload = multer({ dest: "uploads/" });
-// Updated route for syncing with WhatsApp contacts (changed method to GET)
+
+// Sync from WhatsApp contacts
 router.get(
   "/sync-whatsapp-contacts",
   authMiddleware,
+  requirePermission("customers.create"),
   customerController.syncWithWhatsApp
 );
-// New route: Download import template
+
+// Download Excel import template
 router.get(
   "/import-template",
   authMiddleware,
+  requirePermission("customers.read"),
   customerController.downloadImportTemplate
 );
-// Existing customer routes
-router.post("/", authMiddleware, customerController.addCustomer);
-router.get("/", customerController.getAllCustomers); // supports pagination & category filter
-router.get("/:id", customerController.getCustomerById);
-router.put("/:id", customerController.updateCustomer);
-router.delete("/:id", customerController.deleteCustomer);
 
-// New route for importing customers from Excel
+// CRUD
+router.post(
+  "/",
+  authMiddleware,
+  requirePermission("customers.create"),
+  customerController.addCustomer
+);
+
+router.get(
+  "/",
+  authMiddleware,
+  requirePermission("customers.read"),
+  customerController.getAllCustomers
+);
+
+router.get(
+  "/:id",
+  authMiddleware,
+  requirePermission("customers.read"),
+  customerController.getCustomerById
+);
+
+router.put(
+  "/:id",
+  authMiddleware,
+  requirePermission("customers.update"),
+  customerController.updateCustomer
+);
+
+router.delete(
+  "/:id",
+  authMiddleware,
+  requirePermission("customers.delete"),
+  customerController.deleteCustomer
+);
+
+// Import from Excel
 router.post(
   "/import",
   authMiddleware,
+  requirePermission("customers.create"),
   upload.single("file"),
   customerController.importCustomers
 );

@@ -25,20 +25,24 @@ exports.getAllCustomers = async (
   const whereCondition = {};
 
   // Category filtering
-  if (categories.length > 0 && !categories.includes('All')) {
+  if (categories.length > 0 && !categories.includes("All")) {
     whereCondition.category_id = { [Op.in]: categories };
   }
 
   // Alphabet filtering
-  if (alphabet && alphabet !== 'All') {
+  if (alphabet && alphabet !== "All") {
     const conditions = [];
 
-    if (alphabet === '#') {
+    if (alphabet === "#") {
       conditions.push({
-        profile_name: { [Op.regexp]: '^[^A-Za-zأ-ي]' }
+        profile_name: { [Op.regexp]: "^[^A-Za-zأ-ي]" },
       });
     } else {
-      const arEquivalent = EN_AR_LETTER_MAP[alphabet.toUpperCase()];
+      // const arEquivalent = EN_AR_LETTER_MAP[alphabet.toUpperCase()];
+      const arEquivalent =
+        (typeof EN_AR_LETTER_MAP !== "undefined" &&
+          EN_AR_LETTER_MAP[alphabet.toUpperCase()]) ||
+        alphabet.toUpperCase();
       conditions.push(
         { profile_name: { [Op.like]: `${arEquivalent}%` } },
         { profile_name: { [Op.like]: `${alphabet.toUpperCase()}%` } },
@@ -53,7 +57,7 @@ exports.getAllCustomers = async (
   if (searchTerm) {
     whereCondition[Op.or] = [
       { profile_name: { [Op.like]: `%${searchTerm}%` } },
-      { whatsapp_number: { [Op.like]: `%${searchTerm}%` } }
+      { whatsapp_number: { [Op.like]: `%${searchTerm}%` } },
     ];
   }
 
@@ -208,8 +212,8 @@ exports.importCustomersFromExcel = async (
               gender && gender.toLowerCase() === "not_set"
                 ? "not_set"
                 : gender
-                  ? gender.toLowerCase()
-                  : "not_set";
+                ? gender.toLowerCase()
+                : "not_set";
 
             const newCustomerData = {
               user_id: userId,

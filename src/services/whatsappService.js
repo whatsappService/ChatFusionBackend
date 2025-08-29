@@ -235,35 +235,35 @@ exports.checkWhatsAppNumber = async (userId, phoneNumber) => {
  * @param {string} phoneNumber - The phone number to check.
  * @returns {Object} - The response from the ChatFusion API.
  */
-exports.checkWhatsAppNumber = async (userId, phoneNumber) => {
-  try {
-    // Retrieve the API key associated with the user's business
-    const apiKey = await this.getApiKeyByUser(userId);
-    if (!apiKey) {
-      throw new Error("API key not found for this business.");
-    }
+// exports.checkWhatsAppNumber = async (userId, phoneNumber) => {
+//   try {
+//     // Retrieve the API key associated with the user's business
+//     const apiKey = await this.getApiKeyByUser(userId);
+//     if (!apiKey) {
+//       throw new Error("API key not found for this business.");
+//     }
 
-    // Build the URL using the query parameter 'recipient'
-    const url = `${CHATFUSION_CHECK_NUMBER_URL}?phone=${encodeURIComponent(
-      phoneNumber
-    )}`;
+//     // Build the URL using the query parameter 'recipient'
+//     const url = `${CHATFUSION_CHECK_NUMBER_URL}?phone=${encodeURIComponent(
+//       phoneNumber
+//     )}`;
 
-    // Call the ChatFusion API using GET request
-    const response = await axios.get(url, {
-      headers: { "x-api-key": apiKey },
-    });
+//     // Call the ChatFusion API using GET request
+//     const response = await axios.get(url, {
+//       headers: { "x-api-key": apiKey },
+//     });
 
-    return response.data;
-  } catch (error) {
-    console.error(
-      "Error checking WhatsApp number:",
-      error.response?.data || error.message
-    );
-    throw new Error(
-      error.response?.data?.message || "Failed to check WhatsApp number"
-    );
-  }
-};
+//     return response.data;
+//   } catch (error) {
+//     console.error(
+//       "Error checking WhatsApp number:",
+//       error.response?.data || error.message
+//     );
+//     throw new Error(
+//       error.response?.data?.message || "Failed to check WhatsApp number"
+//     );
+//   }
+// };
 
 /**
  * Disconnect the WhatsApp client associated with a business.

@@ -117,7 +117,9 @@ module.exports = {
   refreshToken: async (refreshToken) => {
     if (!refreshToken) throw new Error("Refresh token required");
     const decoded = verifyRefreshToken(refreshToken);
-    return buildAuthPayload(decoded.id);
+    const uid = decoded?.id ?? decoded?.sub; // 👈 accept sub fallback
+    if (!uid) throw new Error("Invalid refresh token payload");
+    return buildAuthPayload(uid); // re-pulls fresh data
   },
 
   getAuthUser: async (userId) => buildAuthPayload(userId),

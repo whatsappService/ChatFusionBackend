@@ -23,7 +23,10 @@ exports.register = async (req, res) => {
 
 exports.refreshToken = async (req, res) => {
   try {
-    const { refreshToken } = req.body;
+    const { refreshToken } = req.body || {};
+    if (!refreshToken) {
+      return res.status(400).json({ error: "Refresh token required" });
+    }
     const tokens = await authService.refreshToken(refreshToken);
     res.json(tokens);
   } catch (error) {

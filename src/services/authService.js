@@ -21,38 +21,52 @@ async function buildAuthPayload(userId) {
 
   const replacements = { userId: user.id, businessId: user.business_id };
 
+  // EFFECTIVE FEATURES: only features the business has
   const effective = await sequelize.query(
-    `SELECT f.code,
-            COALESCE(uf.enabled, bf.enabled, 0)      AS enabled,
-            COALESCE(uf.limit_value, bf.limit_value) AS limit_value,
-            COALESCE(uf.meta_json,  bf.meta_json)    AS meta_json,
-            CASE
-              WHEN uf.enabled IS NOT NULL OR uf.limit_value IS NOT NULL OR uf.meta_json IS NOT NULL THEN 'user'
-              WHEN bf.enabled IS NOT NULL OR bf.limit_value IS NOT NULL OR bf.meta_json IS NOT NULL THEN 'business'
-              ELSE 'default'
-            END AS source
-     FROM Features f
-     LEFT JOIN BusinessFeatures bf ON bf.feature_id=f.id AND bf.business_id=:businessId
-     LEFT JOIN UserFeatures uf     ON uf.feature_id=f.id AND uf.user_id=:userId
-     ORDER BY f.code`,
+    `
+  SELECT
+    f.code,
+    COALESCE(uf.enabled, bf.enabled, 0)      AS enabled,
+    COALESCE(uf.limit_value, bf.limit_value) AS limit_value,
+    COALESCE(uf.meta_json, bf.meta_json)     AS meta_json,
+    CASE
+      WHEN uf.enabled IS NOT NULL OR uf.limit_value IS NOT NULL OR uf.meta_json IS NOT NULL THEN 'user'
+      ELSE 'business'
+    END AS source
+  FROM BusinessFeatures bf
+  JOIN Features f
+    ON f.id = bf.feature_id
+  LEFT JOIN UserFeatures uf
+    ON uf.feature_id = f.id AND uf.user_id = :userId
+  WHERE bf.business_id = :businessId
+  ORDER BY f.code
+  `,
     { type: QueryTypes.SELECT, replacements }
   );
 
+  // USER OVERRIDES: only for features the business has
   const userOverrides = await sequelize.query(
-    `SELECT f.code, uf.enabled, uf.limit_value, uf.meta_json
-     FROM UserFeatures uf
-     JOIN Features f ON f.id=uf.feature_id
-     WHERE uf.user_id=:userId
-     ORDER BY f.code`,
+    `
+  SELECT f.code, uf.enabled, uf.limit_value, uf.meta_json
+  FROM UserFeatures uf
+  JOIN Features f
+    ON f.id = uf.feature_id
+  JOIN BusinessFeatures bf
+    ON bf.feature_id = f.id AND bf.business_id = :businessId
+  WHERE uf.user_id = :userId
+  ORDER BY f.code
+  `,
     { type: QueryTypes.SELECT, replacements }
   );
 
   const businessToggles = await sequelize.query(
-    `SELECT f.code, bf.enabled, bf.limit_value, bf.meta_json
-     FROM BusinessFeatures bf
-     JOIN Features f ON f.id=bf.feature_id
-     WHERE bf.business_id=:businessId
-     ORDER BY f.code`,
+    `
+    SELECT f.code, bf.enabled, bf.limit_value, bf.meta_json
+    FROM BusinessFeatures bf
+    JOIN Features f ON f.id = bf.feature_id
+    WHERE bf.business_id = :businessId
+    ORDER BY f.code
+    `,
     { type: QueryTypes.SELECT, replacements }
   );
 

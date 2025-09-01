@@ -1,7 +1,8 @@
+// src/migrations/20250222_create_customers.js
 "use strict";
 module.exports = {
-  up: async (queryInterface, Sequelize) => {
-    await queryInterface.createTable("Customers", {
+  up: async (q, Sequelize) => {
+    await q.createTable("Customers", {
       id: { type: Sequelize.INTEGER, autoIncrement: true, primaryKey: true },
       user_id: {
         type: Sequelize.INTEGER,
@@ -44,7 +45,7 @@ module.exports = {
       },
     });
   },
-  down: async (queryInterface, Sequelize) => {
-    await queryInterface.dropTable("Customers");
+  down: async (q) => {
+    await q.dropTable("Customers");
   },
 };

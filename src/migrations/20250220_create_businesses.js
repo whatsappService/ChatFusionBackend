@@ -1,10 +1,10 @@
+// src/migrations/20250220_create_businesses.js
 "use strict";
-
 const { DataTypes } = require("sequelize");
 
 module.exports = {
-  up: async (queryInterface, Sequelize) => {
-    await queryInterface.createTable("Businesses", {
+  up: async (q, Sequelize) => {
+    await q.createTable("Businesses", {
       id: { type: Sequelize.INTEGER, autoIncrement: true, primaryKey: true },
       business_name: { type: Sequelize.STRING, allowNull: false },
       business_phone_number: { type: Sequelize.STRING, allowNull: false },
@@ -32,8 +32,7 @@ module.exports = {
       },
     });
   },
-
-  down: async (queryInterface, Sequelize) => {
-    await queryInterface.dropTable("Businesses");
+  down: async (q) => {
+    await q.dropTable("Businesses");
   },
 };

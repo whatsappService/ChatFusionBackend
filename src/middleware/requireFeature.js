@@ -1,80 +1,67 @@
+// src/middleware/requireFeature.js
 "use strict";
 
 const { QueryTypes } = require("sequelize");
 const sequelize = require("../config/database");
+const BusinessPackageService = require("../services/BusinessPackageService");
 
-/**
- * requireFeature(required, opts?)
- *   - required: string | string[]
- *   - opts.mode: 'any' | 'all'  (default: 'any')
- *   - opts.strict: boolean      (default: false) — if true, 400 if any feature code is unknown
- *
- * Effective policy:
- *   effective = (business_enabled == 1) AND (user_enabled IS NULL OR user_enabled == 1)
- * i.e. business turns it on; users can only turn it off if they have an override.
- */
 module.exports = function requireFeature(required, opts = {}) {
-  const codes = (Array.isArray(required) ? required : [required]).filter(Boolean);
-  const mode = (opts.mode || "any").toLowerCase(); // 'any' | 'all'
+  const codes = (Array.isArray(required) ? required : [required]).filter(
+    Boolean
+  );
+  const mode = (opts.mode || "any").toLowerCase();
   const strict = !!opts.strict;
 
   return async function (req, res, next) {
     try {
       if (!codes.length) return next();
 
-      const businessId = req.user?.business_id;
-      const userId = req.user?.id;
-      if (!businessId || !userId) {
+      const roles = Array.isArray(req.user?.roles) ? req.user.roles : [];
+      if (roles.includes("super-admin")) return next();
+
+      const businessId = Number(
+        req.user?.business_id || req.params?.businessId || req.params?.id
+      );
+      const userId = Number(req.user?.id);
+      if (!businessId || !userId)
         return res.status(401).json({ error: "Unauthorized" });
+
+      let featuresMap = req.ctx?.effectiveAccess?.featuresMap;
+      if (!featuresMap) {
+        const eff = await BusinessPackageService.getEffectiveAccessForUser(
+          businessId,
+          userId
+        );
+        req.ctx = req.ctx || {};
+        req.ctx.effectiveAccess = eff || { featuresMap: {}, permissions: [] };
+        featuresMap = req.ctx.effectiveAccess.featuresMap || {};
       }
 
-      const placeholders = codes.map(() => "?").join(",");
-      const rows = await sequelize.query(
-        `
-        SELECT
-          f.code,
-          CASE
-            WHEN COALESCE(bf.enabled, 0) = 1
-                 AND COALESCE(uf.enabled, 1) = 1
-            THEN 1 ELSE 0
-          END AS enabled
-        FROM Features f
-        LEFT JOIN BusinessFeatures bf
-          ON bf.feature_id = f.id AND bf.business_id = ?
-        LEFT JOIN UserFeatures uf
-          ON uf.feature_id = f.id AND uf.user_id    = ?
-        WHERE f.code IN (${placeholders})
-        `,
-        {
-          type: QueryTypes.SELECT,
-          replacements: [businessId, userId, ...codes],
-        }
-      );
-
-      // Optional strictness: ensure every requested code exists in Features
       if (strict) {
+        const placeholders = codes.map(() => "?").join(",");
+        const rows = await sequelize.query(
+          `SELECT code FROM \`Features\` WHERE code IN (${placeholders})`,
+          { type: QueryTypes.SELECT, replacements: codes }
+        );
         const found = new Set(rows.map((r) => r.code));
         const missing = codes.filter((c) => !found.has(c));
         if (missing.length) {
-          return res.status(400).json({
-            error: "UnknownFeatureCode",
-            missing,
-          });
+          return res.status(400).json({ error: "UnknownFeatureCode", missing });
         }
       }
 
       const enabledSet = new Set(
-        rows.filter((r) => Number(r.enabled) === 1).map((r) => r.code)
+        codes.filter((c) => !!(featuresMap[c] && featuresMap[c].enabled))
       );
-
       const pass =
         mode === "all"
           ? codes.every((c) => enabledSet.has(c))
           : codes.some((c) => enabledSet.has(c));
 
       if (!pass) {
-        const details = {};
-        codes.forEach((c) => (details[c] = enabledSet.has(c)));
+        const details = Object.fromEntries(
+          codes.map((c) => [c, enabledSet.has(c)])
+        );
         return res.status(403).json({
           error: "FeatureNotEnabled",
           message: "You don't have access to this feature.",
@@ -84,14 +71,24 @@ module.exports = function requireFeature(required, opts = {}) {
         });
       }
 
-      // Expose resolved bits downstream if useful
-      req.featuresResolved = Object.fromEntries(
-        codes.map((c) => [c, enabledSet.has(c)])
-      );
-
+      req.featuresResolved = Object.fromEntries(codes.map((c) => [c, true]));
       next();
     } catch (e) {
-      next(e);
+      console.error("requireFeature error", {
+        path: req.originalUrl,
+        userId: req.user?.id,
+        businessId: req.user?.business_id || req.params?.businessId,
+        message: e?.message,
+        sqlMessage: e?.original?.sqlMessage,
+        sql: e?.sql,
+        stack: e?.stack,
+      });
+      return res
+        .status(500)
+        .json({
+          error: "FeatureCheckFailed",
+          message: e?.message || "Feature gate failed",
+        });
     }
   };
 };

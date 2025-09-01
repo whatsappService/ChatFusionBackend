@@ -1,11 +1,12 @@
+// src/migrations/20250222_create_message_templates.js
 "use strict";
 module.exports = {
-  up: async (queryInterface, Sequelize) => {
-    await queryInterface.createTable("MessageTemplates", {
+  up: async (q, Sequelize) => {
+    await q.createTable("MessageTemplates", {
       id: { type: Sequelize.INTEGER, autoIncrement: true, primaryKey: true },
       user_id: {
         type: Sequelize.INTEGER,
-        allowNull: true, // ✅ Allow NULL for system templates
+        allowNull: true,
         references: { model: "Users", key: "id" },
         onDelete: "CASCADE",
       },
@@ -21,7 +22,7 @@ module.exports = {
       placeholders: {
         type: Sequelize.JSON,
         allowNull: false,
-        defaultValue: [], // ✅ Fix: Correct default JSON array format
+        defaultValue: [],
       },
       createdAt: {
         type: Sequelize.DATE,
@@ -37,8 +38,7 @@ module.exports = {
       },
     });
   },
-
-  down: async (queryInterface, Sequelize) => {
-    await queryInterface.dropTable("MessageTemplates");
+  down: async (q) => {
+    await q.dropTable("MessageTemplates");
   },
 };

@@ -1,5 +1,5 @@
+// src/migrations/20250221_create_users.js
 "use strict";
-
 module.exports = {
   up: async (q, Sequelize) => {
     await q.createTable("Users", {
@@ -8,13 +8,8 @@ module.exports = {
       email_address: { type: Sequelize.STRING, allowNull: false, unique: true },
       phone_number: { type: Sequelize.STRING, allowNull: false, unique: true },
       password: { type: Sequelize.STRING, allowNull: false },
-
-      // JSON works natively on MySQL 8; on MariaDB Sequelize maps JSON->TEXT.
-      roles: { type: Sequelize.JSON, allowNull: false },
-
       is_active: { type: Sequelize.BOOLEAN, defaultValue: true },
       is_deleted: { type: Sequelize.BOOLEAN, defaultValue: false },
-
       business_id: {
         type: Sequelize.INTEGER,
         allowNull: false,
@@ -22,7 +17,6 @@ module.exports = {
         onDelete: "CASCADE",
         onUpdate: "CASCADE",
       },
-
       createdAt: {
         type: Sequelize.DATE,
         allowNull: false,
@@ -36,12 +30,12 @@ module.exports = {
         ),
       },
     });
-
-    await q.addIndex("Users", ["email_address"]);
-    await q.addIndex("Users", ["phone_number"]);
-    await q.addIndex("Users", ["business_id"]);
+    await q.addIndex("Users", ["email_address"], {
+      name: "users_email_address",
+    });
+    await q.addIndex("Users", ["phone_number"], { name: "users_phone_number" });
+    await q.addIndex("Users", ["business_id"], { name: "users_business_id" });
   },
-
   down: async (q) => {
     await q.dropTable("Users");
   },

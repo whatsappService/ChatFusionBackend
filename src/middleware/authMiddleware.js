@@ -20,7 +20,6 @@ module.exports = async function authenticateUser(req, res, next) {
       decoded = jwt.verify(token, process.env.JWT_SECRET, {
         algorithms: ["HS256"],
         clockTolerance: 5,
-        // issuer: process.env.JWT_ISSUER || "muraasla", // enable only if all tokens include iss
       });
     } catch (err) {
       if (err.name === "TokenExpiredError") {
@@ -38,7 +37,7 @@ module.exports = async function authenticateUser(req, res, next) {
         .json({ error: "Unauthorized", code: "invalid_token" });
     }
 
-    const userId = decoded?.id ?? decoded?.sub; // 👈 accept sub fallback
+    const userId = decoded?.id ?? decoded?.sub;
     if (!userId) {
       return res
         .status(401)
@@ -52,7 +51,6 @@ module.exports = async function authenticateUser(req, res, next) {
         "full_name",
         "email_address",
         "phone_number",
-        "roles",
         "is_active",
         "is_deleted",
         "createdAt",
@@ -78,7 +76,6 @@ module.exports = async function authenticateUser(req, res, next) {
     req.ctx = {
       userId: user.id,
       businessId: user.business_id,
-      roles: Array.isArray(user.roles) ? user.roles : [],
     };
 
     next();

@@ -1,14 +1,31 @@
+// src/migrations/20250828_110000_create_features.js
 "use strict";
 module.exports = {
-  async up(queryInterface, Sequelize) {
-    await queryInterface.createTable("Features", {
-      id: { type: Sequelize.BIGINT.UNSIGNED, autoIncrement: true, primaryKey: true },
+  async up(q, Sequelize) {
+    await q.createTable("Features", {
+      id: {
+        type: Sequelize.BIGINT.UNSIGNED,
+        autoIncrement: true,
+        primaryKey: true,
+      },
       code: { type: Sequelize.STRING(64), unique: true, allowNull: false },
       name: { type: Sequelize.STRING(128), allowNull: false },
       description: { type: Sequelize.TEXT, allowNull: true },
-      createdAt: { type: Sequelize.DATE, allowNull: false, defaultValue: Sequelize.fn("NOW") },
-      updatedAt: { type: Sequelize.DATE, allowNull: false, defaultValue: Sequelize.fn("NOW") },
+      createdAt: {
+        type: Sequelize.DATE,
+        allowNull: false,
+        defaultValue: Sequelize.literal("CURRENT_TIMESTAMP"),
+      },
+      updatedAt: {
+        type: Sequelize.DATE,
+        allowNull: false,
+        defaultValue: Sequelize.literal(
+          "CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"
+        ),
+      },
     });
   },
-  async down(q) { await q.dropTable("Features"); }
+  async down(q) {
+    await q.dropTable("Features");
+  },
 };

@@ -1,13 +1,10 @@
-// src/migrations/20250828_110200_create_user_features.js
+// src/migrations/20250829_120300_create_business_user_packages.js
 "use strict";
 module.exports = {
   async up(q, Sequelize) {
-    await q.createTable("UserFeatures", {
+    await q.createTable("BusinessUserPackages", {
       user_id: { type: Sequelize.INTEGER, allowNull: false },
-      feature_id: { type: Sequelize.BIGINT.UNSIGNED, allowNull: false },
-      enabled: { type: Sequelize.BOOLEAN, allowNull: true }, // NULL => inherit
-      limit_value: { type: Sequelize.INTEGER, allowNull: true },
-      meta_json: { type: Sequelize.JSON, allowNull: true },
+      package_id: { type: Sequelize.BIGINT.UNSIGNED, allowNull: false },
       createdAt: {
         type: Sequelize.DATE,
         allowNull: false,
@@ -21,27 +18,29 @@ module.exports = {
         ),
       },
     });
-    await q.addConstraint("UserFeatures", {
-      fields: ["user_id", "feature_id"],
+    await q.addConstraint("BusinessUserPackages", {
+      fields: ["user_id", "package_id"],
       type: "primary key",
-      name: "pk_user_features",
+      name: "pk_bup",
     });
-    await q.addConstraint("UserFeatures", {
+    await q.addConstraint("BusinessUserPackages", {
       fields: ["user_id"],
       type: "foreign key",
+      name: "fk_bup_user",
       references: { table: "Users", field: "id" },
       onUpdate: "CASCADE",
       onDelete: "CASCADE",
     });
-    await q.addConstraint("UserFeatures", {
-      fields: ["feature_id"],
+    await q.addConstraint("BusinessUserPackages", {
+      fields: ["package_id"],
       type: "foreign key",
-      references: { table: "Features", field: "id" },
+      name: "fk_bup_package",
+      references: { table: "BusinessPackages", field: "id" },
       onUpdate: "CASCADE",
       onDelete: "CASCADE",
     });
   },
   async down(q) {
-    await q.dropTable("UserFeatures");
+    await q.dropTable("BusinessUserPackages");
   },
 };

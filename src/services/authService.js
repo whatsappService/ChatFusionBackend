@@ -1,10 +1,17 @@
 // src/services/authService.js
+"use strict";
+
 const bcrypt = require("bcryptjs");
-const { QueryTypes } = require("sequelize");
-const sequelize = require("../config/database");
 const { User, Business, BusinessCategory } = require("../models/associations");
+const BusinessPackageService = require("../services/BusinessPackageService");
 const { generateTokens, verifyRefreshToken } = require("../utils/tokenUtil");
-const { gatherRolePermissions } = require("../utils/acl"); // <—
+
+function sanitizeUser(u) {
+  if (!u) return u;
+  const json = typeof u.toJSON === "function" ? u.toJSON() : u;
+  delete json.password;
+  return json;
+}
 
 async function buildAuthPayload(userId) {
   const user = await User.findOne({
@@ -19,97 +26,38 @@ async function buildAuthPayload(userId) {
   });
   if (!user) throw new Error("User not found");
 
-  const replacements = { userId: user.id, businessId: user.business_id };
-
-  // EFFECTIVE FEATURES: only features the business has
-  const effective = await sequelize.query(
-    `
-  SELECT
-    f.code,
-    COALESCE(uf.enabled, bf.enabled, 0)      AS enabled,
-    COALESCE(uf.limit_value, bf.limit_value) AS limit_value,
-    COALESCE(uf.meta_json, bf.meta_json)     AS meta_json,
-    CASE
-      WHEN uf.enabled IS NOT NULL OR uf.limit_value IS NOT NULL OR uf.meta_json IS NOT NULL THEN 'user'
-      ELSE 'business'
-    END AS source
-  FROM BusinessFeatures bf
-  JOIN Features f
-    ON f.id = bf.feature_id
-  LEFT JOIN UserFeatures uf
-    ON uf.feature_id = f.id AND uf.user_id = :userId
-  WHERE bf.business_id = :businessId
-  ORDER BY f.code
-  `,
-    { type: QueryTypes.SELECT, replacements }
+  // Effective access is already:
+  // - user-scoped (packages + user overrides, user overrides win)
+  // - gated by business allow-list (if business disables a feature, user loses it)
+  const eff = await BusinessPackageService.getEffectiveAccessForUser(
+    user.business_id,
+    user.id
   );
 
-  // USER OVERRIDES: only for features the business has
-  const userOverrides = await sequelize.query(
-    `
-  SELECT f.code, uf.enabled, uf.limit_value, uf.meta_json
-  FROM UserFeatures uf
-  JOIN Features f
-    ON f.id = uf.feature_id
-  JOIN BusinessFeatures bf
-    ON bf.feature_id = f.id AND bf.business_id = :businessId
-  WHERE uf.user_id = :userId
-  ORDER BY f.code
-  `,
-    { type: QueryTypes.SELECT, replacements }
-  );
-
-  const businessToggles = await sequelize.query(
-    `
-    SELECT f.code, bf.enabled, bf.limit_value, bf.meta_json
-    FROM BusinessFeatures bf
-    JOIN Features f ON f.id = bf.feature_id
-    WHERE bf.business_id = :businessId
-    ORDER BY f.code
-    `,
-    { type: QueryTypes.SELECT, replacements }
-  );
-
-  const featuresList = effective.map((r) => ({
-    code: r.code,
-    enabled: !!r.enabled,
-    limit_value: r.limit_value ?? null,
-    meta_json: r.meta_json ?? null,
-    source: r.source,
-  }));
+  const featuresList = Array.isArray(eff?.featuresList) ? eff.featuresList : [];
   const features = Object.fromEntries(
     featuresList.map((f) => [
       f.code,
       {
-        enabled: f.enabled,
-        limit_value: f.limit_value,
-        meta_json: f.meta_json,
-        source: f.source,
+        enabled: true,
+        limit_value: f.limit_value ?? null,
+        meta_json: f.meta_json ?? null,
+        source: f.source || "package",
       },
     ])
   );
+  const permissions = Array.isArray(eff?.permissions) ? eff.permissions : [];
 
-  // NEW: compute permissions from roles (super-admin => ["*"])
-  const roles = Array.isArray(user.roles) ? user.roles : [];
-  const permissions = gatherRolePermissions(roles); // returns ["*"] for super-admin
-
-  const { accessToken, refreshToken } = generateTokens(user, {
-    features,
-    featuresList,
-    userFeatureOverrides: userOverrides,
-    businessFeatureToggles: businessToggles,
-    permissions, // <— include in token
-  });
+  const safeUser = sanitizeUser(user);
+  const { accessToken, refreshToken } = generateTokens(safeUser);
 
   return {
     accessToken,
     refreshToken,
-    user,
-    features,
-    featuresList,
-    userFeatureOverrides: userOverrides,
-    businessFeatureToggles: businessToggles,
-    permissions, // <— include in response
+    user: safeUser,
+    features, // map { code: {enabled:true, limit_value, meta_json, source} }
+    featuresList, // array of enabled features the user actually has
+    permissions, // expanded, de-duped, deny-applied
   };
 }
 
@@ -131,9 +79,9 @@ module.exports = {
   refreshToken: async (refreshToken) => {
     if (!refreshToken) throw new Error("Refresh token required");
     const decoded = verifyRefreshToken(refreshToken);
-    const uid = decoded?.id ?? decoded?.sub; // 👈 accept sub fallback
+    const uid = decoded?.id ?? decoded?.sub;
     if (!uid) throw new Error("Invalid refresh token payload");
-    return buildAuthPayload(uid); // re-pulls fresh data
+    return buildAuthPayload(uid);
   },
 
   getAuthUser: async (userId) => buildAuthPayload(userId),

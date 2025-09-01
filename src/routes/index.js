@@ -1,3 +1,4 @@
+// src/routes/index.js
 "use strict";
 
 const express = require("express");
@@ -30,38 +31,50 @@ const chatbotRoutes = require("./chatbotRoutes");
 // History / Reports
 const historyRoutes = require("./historyRoutes");
 
+// Packages (NEW)
+const businessPackageRoutes = require("./businessPackages"); // expects Router({ mergeParams: true })
+const effectiveAccessRoutes = require("./effectiveAccess"); // expects Router({ mergeParams: true })
+
 const router = express.Router();
 
-// Auth
+/* ---------- Auth ---------- */
 router.use("/auth", authRoutes);
 
-// Core entities
+/* ---------- Core entities ---------- */
 router.use("/users", userRoutes);
 router.use("/businesses", businessRoutes);
 router.use("/business-categories", businessCategoryRoutes);
 
-// Customers
+/* ---------- Customers ---------- */
 router.use("/customers", customerRoutes);
 router.use("/customer-categories", customerCategoryRoutes);
 
-// Messaging
+/* ---------- Messaging ---------- */
 router.use("/message-templates", messageTemplateRoutes);
 router.use("/messages", messageRoutes);
 router.use("/messaging", messageRoutes);
-
 router.use("/schedules", scheduleRoutes);
 
-// Integrations / Ops
+/* ---------- Integrations / Ops ---------- */
 router.use("/whatsapp", whatsappRoutes);
 router.use("/webhooks", webhookRoutes);
 router.use("/api-access", apiAccessRoutes);
 
-// Insights / Team / Bot
+/* ---------- Insights / Team / Bot ---------- */
 router.use("/analytics", analyticsRoutes);
 router.use("/multi-user", multiUserRoutes);
 router.use("/chatbot", chatbotRoutes);
 
-// History / Reports
+/* ---------- History / Reports ---------- */
 router.use("/history", historyRoutes);
+
+/* ---------- Packages (mounted under a business) ---------- */
+// CRUD packages, assign/unassign users to packages, etc.
+// e.g. POST /businesses/1/packages, GET /businesses/1/packages/:packageId, POST /businesses/1/packages/:packageId/assign
+router.use("/businesses/:businessId/packages", businessPackageRoutes);
+
+// Effective access (features + permissions union) for a user in this business
+// e.g. GET /businesses/1/effective-access/1
+router.use("/businesses/:businessId/effective-access", effectiveAccessRoutes);
 
 module.exports = router;

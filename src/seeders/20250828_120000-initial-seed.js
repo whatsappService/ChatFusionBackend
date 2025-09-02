@@ -1,3 +1,4 @@
+// src/migrations/XXXXXX_seed_core_with_usage.js
 "use strict";
 
 const bcrypt = require("bcryptjs");
@@ -25,10 +26,13 @@ module.exports = {
         const cols = Object.keys(insertValues);
         const placeholders = cols.map(() => "?").join(", ");
         await sequelize.query(
-          `INSERT INTO \`${table}\` (${cols.map((c) => `\`${c}\``).join(", ")})
+          `INSERT INTO \`${table}\` (${cols
+            .map((c) => "`" + c + "`")
+            .join(", ")})
            VALUES (${placeholders})`,
           { replacements: Object.values(insertValues), transaction: t }
         );
+
         const [rows] = await sequelize.query(
           `SELECT * FROM \`${table}\` WHERE \`${uniqueField}\` = ? LIMIT 1`,
           { replacements: [uniqueValue], transaction: t }
@@ -107,30 +111,24 @@ module.exports = {
         return rows[0];
       };
 
+      // NO limit_value ANYWHERE from here down 👇
+
       const upsertPackageFeature = async ({
         package_id,
         feature_id,
         enabled,
-        limit_value = null,
-        meta_json = null,
+        meta_json = null, // caps can live in meta_json (optional)
       }) => {
         await sequelize.query(
           `INSERT INTO \`BusinessPackageFeatures\`
-           (package_id, feature_id, enabled, limit_value, meta_json, createdAt, updatedAt)
-           VALUES (?, ?, ?, ?, ?, NOW(), NOW())
+           (package_id, feature_id, enabled, meta_json, createdAt, updatedAt)
+           VALUES (?, ?, ?, ?, NOW(), NOW())
            ON DUPLICATE KEY UPDATE
              enabled=VALUES(enabled),
-             limit_value=VALUES(limit_value),
              meta_json=VALUES(meta_json),
              updatedAt=VALUES(updatedAt)`,
           {
-            replacements: [
-              package_id,
-              feature_id,
-              enabled ? 1 : 0,
-              limit_value,
-              meta_json,
-            ],
+            replacements: [package_id, feature_id, enabled ? 1 : 0, meta_json],
             transaction: t,
           }
         );
@@ -158,26 +156,18 @@ module.exports = {
         user_id,
         feature_id,
         enabled = null, // null = inherit
-        limit_value = null,
-        meta_json = null,
+        meta_json = null, // per-user usage caps etc. as JSON string
       }) => {
         await sequelize.query(
           `INSERT INTO \`UserFeatures\`
-           (user_id, feature_id, enabled, limit_value, meta_json, createdAt, updatedAt)
-           VALUES (?, ?, ?, ?, ?, NOW(), NOW())
+           (user_id, feature_id, enabled, meta_json, createdAt, updatedAt)
+           VALUES (?, ?, ?, ?, NOW(), NOW())
            ON DUPLICATE KEY UPDATE
              enabled=VALUES(enabled),
-             limit_value=VALUES(limit_value),
              meta_json=VALUES(meta_json),
              updatedAt=VALUES(updatedAt)`,
           {
-            replacements: [
-              user_id,
-              feature_id,
-              enabled,
-              limit_value,
-              meta_json,
-            ],
+            replacements: [user_id, feature_id, enabled, meta_json],
             transaction: t,
           }
         );
@@ -194,6 +184,62 @@ module.exports = {
            ON DUPLICATE KEY UPDATE effect=VALUES(effect), updatedAt=VALUES(updatedAt)`,
           { replacements: [user_id, perm, effect], transaction: t }
         );
+      };
+
+      // ---- usage counters helpers ----
+      const pad2 = (n) => String(n).padStart(2, "0");
+      const dayKeyUTC = (d = new Date()) =>
+        `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(
+          d.getUTCDate()
+        )}`;
+      const monthKeyUTC = (d = new Date()) =>
+        `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}`;
+
+      // Use NULL-safe equality for user_id to be idempotent even with NULL (MySQL)
+      const ensureUsageCounter = async ({
+        business_id,
+        user_id = null,
+        feature_code,
+        period_key,
+        used = 0,
+      }) => {
+        const [rows] = await sequelize.query(
+          `SELECT id FROM \`UsageCounters\`
+             WHERE business_id=? AND feature_code=? AND period_key=? AND (user_id <=> ?)
+             LIMIT 1`,
+          {
+            replacements: [business_id, feature_code, period_key, user_id],
+            transaction: t,
+          }
+        );
+        if (!rows.length) {
+          await sequelize.query(
+            `INSERT INTO \`UsageCounters\`
+              (business_id, user_id, feature_code, period_key, used, createdAt, updatedAt)
+             VALUES (?, ?, ?, ?, ?, NOW(), NOW())`,
+            {
+              replacements: [
+                business_id,
+                user_id,
+                feature_code,
+                period_key,
+                used,
+              ],
+              transaction: t,
+            }
+          );
+        } else {
+          // touch updatedAt to be nice (optional)
+          await sequelize.query(
+            `UPDATE \`UsageCounters\`
+               SET updatedAt = NOW()
+             WHERE id = ?`,
+            {
+              replacements: [rows[0].id],
+              transaction: t,
+            }
+          );
+        }
       };
 
       // ---------- 1) categories ----------
@@ -323,15 +369,14 @@ module.exports = {
       );
       const fid = (code) => featureMap[code];
 
-      // ---------- 5) business-level feature defaults (enable all; bulk limit example) ----------
+      // ---------- 5) business-level feature defaults (enable all; no limits) ----------
       for (const code of Object.keys(featureMap)) {
-        const limit = code === "bulk_send" ? 36000 : null;
         await sequelize.query(
           `INSERT INTO \`BusinessFeatures\`
-           (business_id, feature_id, enabled, limit_value, meta_json, createdAt, updatedAt)
-           VALUES (?, ?, 1, ?, NULL, NOW(), NOW())
-           ON DUPLICATE KEY UPDATE enabled=VALUES(enabled), limit_value=VALUES(limit_value), updatedAt=VALUES(updatedAt)`,
-          { replacements: [superBusiness.id, fid(code), limit], transaction: t }
+           (business_id, feature_id, enabled, meta_json, createdAt, updatedAt)
+           VALUES (?, ?, 1, NULL, NOW(), NOW())
+           ON DUPLICATE KEY UPDATE enabled=VALUES(enabled), updatedAt=VALUES(updatedAt)`,
+          { replacements: [superBusiness.id, fid(code)], transaction: t }
         );
       }
 
@@ -361,8 +406,7 @@ module.exports = {
         description: "View analytics and reports only",
       });
 
-      // ---------- 7) granular permission catalog (per feature) ----------
-      // You can extend these as your app grows.
+      // ---------- 7) granular permission catalog ----------
       const PERMISSIONS_BY_FEATURE = {
         single_messages: ["messages.read", "messages.send"],
         scheduled_messages: [
@@ -376,9 +420,9 @@ module.exports = {
         analytics: ["reports.view"],
         api_access: ["api.manage"],
         webhooks: ["webhooks.manage"],
-        multi_user: ["multiuser.manage"], // kept separate from users.*
+        multi_user: ["multiuser.manage"],
         ai_chatbot: ["chatbot.manage"],
-        users: ["users.read", "users.write", "users.invite"], // NEW
+        users: ["users.read", "users.write", "users.invite"],
       };
       const ALL_PERMS = Array.from(
         new Set(Object.values(PERMISSIONS_BY_FEATURE).flat())
@@ -396,7 +440,7 @@ module.exports = {
           package_id: ownerPkg.id,
           feature_id: fid(code),
           enabled: true,
-          limit_value: code === "bulk_send" ? 36000 : null,
+          meta_json: null, // no caps at package level
         });
       }
       await addAllPermsForPackage(ownerPkg.id);
@@ -510,12 +554,13 @@ module.exports = {
       });
 
       // ---------- 13) custom user (no package): custom features + custom permissions ----------
-      // Features: allow single messages + media; deny bulk + schedules; allow analytics
+      // Enable single messages + media; disable bulk + schedules; enable analytics
       await upsertUserFeature({
         user_id: customUser.id,
         feature_id: fid("single_messages"),
         enabled: true,
-        limit_value: 5000,
+        // give custom user a per-day cap of 50 single messages
+        meta_json: JSON.stringify({ usage_cap: { period: "DAY", cap: 50 } }),
       });
       await upsertUserFeature({
         user_id: customUser.id,
@@ -538,7 +583,16 @@ module.exports = {
         enabled: true,
       });
 
-      // Permissions: allow read, deny send; allow reports.view and media.upload
+      // Messenger user inherits enabled=true for single_messages via package,
+      // but we ALSO set a cap here via meta_json without overriding enabled state.
+      await upsertUserFeature({
+        user_id: messengerUser.id,
+        feature_id: fid("single_messages"),
+        enabled: null, // inherit
+        meta_json: JSON.stringify({ usage_cap: { period: "DAY", cap: 100 } }),
+      });
+
+      // Permissions for custom user: allow read, deny send; allow reports.view and media.upload
       await upsertUserPermission({
         user_id: customUser.id,
         perm: "messages.read",
@@ -559,7 +613,49 @@ module.exports = {
         perm: "media.upload",
         effect: "ALLOW",
       });
-      // Add any additional custom perms you need here
+
+      // ---------- 13.5) seed initial usage counters (used = 0) ----------
+      const today = new Date();
+      const periodKeys = [dayKeyUTC(today), monthKeyUTC(today)];
+      // Seed counters for features that we enforce caps/track usage for
+      const FEATURE_CODES_TO_INIT = ["single_messages", "bulk_send"];
+
+      for (const feature_code of FEATURE_CODES_TO_INIT) {
+        for (const pk of periodKeys) {
+          // per-user counters (those with caps or likely to use feature)
+          await ensureUsageCounter({
+            business_id: superBusiness.id,
+            user_id: messengerUser.id,
+            feature_code,
+            period_key: pk,
+            used: 0,
+          });
+          await ensureUsageCounter({
+            business_id: superBusiness.id,
+            user_id: customUser.id,
+            feature_code,
+            period_key: pk,
+            used: 0,
+          });
+          // Optionally seed for superAdmin as well (no caps but usage may show up early)
+          await ensureUsageCounter({
+            business_id: superBusiness.id,
+            user_id: superAdmin.id,
+            feature_code,
+            period_key: pk,
+            used: 0,
+          });
+
+          // business aggregate counter (user_id = NULL)
+          await ensureUsageCounter({
+            business_id: superBusiness.id,
+            user_id: null,
+            feature_code,
+            period_key: pk,
+            used: 0,
+          });
+        }
+      }
 
       // ---------- 14) system templates (user_id = NULL) ----------
       const systemTemplates = [
@@ -762,6 +858,12 @@ module.exports = {
           ],
           transaction: t,
         }
+      );
+
+      // Remove usage counters for the seeded business
+      await sequelize.query(
+        "DELETE FROM `UsageCounters` WHERE business_id IN (SELECT id FROM `Businesses` WHERE business_name = ?)",
+        { replacements: ["Super Admin Business"], transaction: t }
       );
 
       // Remove BusinessUserPackages for seeded users

@@ -1,4 +1,3 @@
-// src/migrations/20250828_110200_create_user_features.js
 "use strict";
 module.exports = {
   async up(q, Sequelize) {
@@ -6,7 +5,7 @@ module.exports = {
       user_id: { type: Sequelize.INTEGER, allowNull: false },
       feature_id: { type: Sequelize.BIGINT.UNSIGNED, allowNull: false },
       enabled: { type: Sequelize.BOOLEAN, allowNull: true }, // NULL => inherit
-      limit_value: { type: Sequelize.INTEGER, allowNull: true },
+      // ⬇️ removed: limit_value
       meta_json: { type: Sequelize.JSON, allowNull: true },
       createdAt: {
         type: Sequelize.DATE,
@@ -21,6 +20,7 @@ module.exports = {
         ),
       },
     });
+
     await q.addConstraint("UserFeatures", {
       fields: ["user_id", "feature_id"],
       type: "primary key",

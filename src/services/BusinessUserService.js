@@ -1,10 +1,14 @@
 "use strict";
 
-const { Op, fn, col } = require("sequelize");
+const { Op, fn, col, where, literal } = require("sequelize");
 const {
   User,
   Business,
+  BusinessPackage,
+  BusinessUserPackage,
   BusinessPackagePermission,
+  UserPermission,
+  UserFeature,
 } = require("../models/associations");
 
 /* -------------------- helpers -------------------- */
@@ -103,7 +107,6 @@ async function shapeUserWithAccess(businessId, userId, u) {
   const shaped = shapeUserBasic(u, businessNameField);
 
   try {
-    // Lazy require here – avoids any circular module timing issues.
     const { getEffectiveAccessForUser } = require("./BusinessPackageService");
 
     const eff = await getEffectiveAccessForUser(
@@ -132,6 +135,146 @@ async function shapeUserWithAccess(businessId, userId, u) {
   }
 }
 
+/** Decide package_name/is_custom for ONE user */
+function decidePackageFields({
+  assignedPkgs = [],
+  defaultPackageId = null,
+  hasPermOverrides = false,
+  hasFeatureOverrides = false,
+}) {
+  const multiple = assignedPkgs.length > 1;
+  const none = assignedPkgs.length === 0;
+
+  let chosen = null;
+  if (defaultPackageId) {
+    chosen =
+      assignedPkgs.find((p) => Number(p.id) === Number(defaultPackageId)) ||
+      null;
+  }
+  if (!chosen && assignedPkgs.length === 1) chosen = assignedPkgs[0];
+
+  const is_custom = none || multiple || hasPermOverrides || hasFeatureOverrides;
+  const pkgNameFromChosen =
+    chosen?.name || chosen?.title || chosen?.display_name || null;
+
+  const package_name = is_custom ? "Custom" : pkgNameFromChosen || "Custom";
+
+  return {
+    package: { id: chosen?.id ?? null, name: package_name, is_custom },
+    package_name,
+    is_custom,
+  };
+}
+
+/** Batch load: packages + overrides for a set of userIds in a business */
+async function computePackageFieldsBulk(businessId, users) {
+  const userIds = users.map((u) => Number(u.id)).filter(Boolean);
+  if (!userIds.length) return new Map();
+
+  // --- package assignments (restricted to business) ---
+  const assignments = await BusinessUserPackage.findAll({
+    where: { user_id: { [Op.in]: userIds } },
+    include: [
+      {
+        model: BusinessPackage,
+        as: "pkg",
+        where: { business_id: Number(businessId) },
+        required: true,
+        attributes: ["id", "name"],
+      },
+    ],
+    attributes: ["user_id", "package_id"],
+    raw: true,
+  });
+
+  const pkgMap = new Map(); // userId -> [{id,name}]
+  for (const row of assignments) {
+    const uid = Number(row.user_id);
+    if (!pkgMap.has(uid)) pkgMap.set(uid, []);
+    pkgMap.get(uid).push({ id: row.package_id, name: row["pkg.name"] });
+  }
+
+  // --- overrides present? ---
+  const permRows = await UserPermission.findAll({
+    where: { user_id: { [Op.in]: userIds } },
+    attributes: ["user_id"],
+    raw: true,
+  });
+  const permOverrideSet = new Set(permRows.map((r) => Number(r.user_id)));
+
+  const featRows = await UserFeature.findAll({
+    where: {
+      user_id: { [Op.in]: userIds },
+      [Op.or]: [
+        { enabled: { [Op.ne]: null } },
+        { meta_json: { [Op.ne]: null } },
+      ],
+    },
+    attributes: ["user_id"],
+    raw: true,
+  });
+  const featOverrideSet = new Set(featRows.map((r) => Number(r.user_id)));
+
+  // --- compute fields per user ---
+  const out = new Map();
+  for (const u of users) {
+    const uid = Number(u.id);
+    const assignedPkgs = pkgMap.get(uid) || [];
+    const fields = decidePackageFields({
+      assignedPkgs,
+      defaultPackageId: u.default_package_id ?? null,
+      hasPermOverrides: permOverrideSet.has(uid),
+      hasFeatureOverrides: featOverrideSet.has(uid),
+    });
+    out.set(uid, fields);
+  }
+  return out;
+}
+
+/** Single-user compute (used by getUserForBusiness) */
+async function computePackageFieldsSingle(businessId, user) {
+  const uid = Number(user.id);
+  const rows = await BusinessUserPackage.findAll({
+    where: { user_id: uid },
+    include: [
+      {
+        model: BusinessPackage,
+        as: "pkg",
+        where: { business_id: Number(businessId) },
+        required: true,
+        attributes: ["id", "name"],
+      },
+    ],
+    attributes: ["package_id"],
+    raw: true,
+  });
+  const assignedPkgs = rows.map((r) => ({
+    id: r.package_id,
+    name: r["pkg.name"],
+  }));
+
+  const hasPermOverrides = !!(await UserPermission.count({
+    where: { user_id: uid },
+  }));
+  const hasFeatureOverrides = !!(await UserFeature.count({
+    where: {
+      user_id: uid,
+      [Op.or]: [
+        { enabled: { [Op.ne]: null } },
+
+        { meta_json: { [Op.ne]: null } },
+      ],
+    },
+  }));
+
+  return decidePackageFields({
+    assignedPkgs,
+    defaultPackageId: user.default_package_id ?? null,
+    hasPermOverrides,
+    hasFeatureOverrides,
+  });
+}
+
 const desiredUserAttrs = [
   "id",
   "full_name",
@@ -141,6 +284,7 @@ const desiredUserAttrs = [
   "is_active",
   "is_deleted",
   "business_id",
+  "default_package_id", // <-- include this so we can prefer the default
   "createdAt",
   "updatedAt",
   "settings",
@@ -164,16 +308,16 @@ exports.getAllUsersForBusiness = async function getAllUsersForBusiness(
     orderDir = "DESC",
   } = {}
 ) {
-  const where = { business_id: Number(businessId) };
+  const whereClause = { business_id: Number(businessId) };
 
   if (!includeInactive) {
-    where.is_deleted = false;
-    where.is_active = true;
+    whereClause.is_deleted = false;
+    whereClause.is_active = true;
   }
 
   if (q && q.trim()) {
     const like = `%${q.trim()}%`;
-    where[Op.or] = [
+    whereClause[Op.or] = [
       { full_name: { [Op.like]: like } },
       { email_address: { [Op.like]: like } },
       { phone_number: { [Op.like]: like } },
@@ -193,7 +337,7 @@ exports.getAllUsersForBusiness = async function getAllUsersForBusiness(
 
   try {
     const { rows, count } = await User.findAndCountAll({
-      where,
+      where: whereClause,
       attributes: userSafeAttrs.length ? userSafeAttrs : undefined,
       include: [
         {
@@ -208,7 +352,19 @@ exports.getAllUsersForBusiness = async function getAllUsersForBusiness(
       order: [[safeOrderBy, safeOrderDir]],
     });
 
-    const items = rows.map((r) => shapeUserBasic(r, businessNameField));
+    const shaped = rows.map((r) => shapeUserBasic(r, businessNameField));
+
+    // --- attach package_name/is_custom/package in bulk ---
+    const pkgFieldsMap = await computePackageFieldsBulk(businessId, shaped);
+    const items = shaped.map((u) => ({
+      ...u,
+      ...(pkgFieldsMap.get(Number(u.id)) || {
+        package: { id: null, name: "Custom", is_custom: true },
+        package_name: "Custom",
+        is_custom: true,
+      }),
+    }));
+
     return {
       total: count,
       limit: l,
@@ -223,14 +379,16 @@ exports.getAllUsersForBusiness = async function getAllUsersForBusiness(
       sqlMessage: err?.original?.sqlMessage,
     });
 
+    // Fallback without include
     const { rows, count } = await User.findAndCountAll({
-      where,
+      where: whereClause,
       attributes: userSafeAttrs.length ? userSafeAttrs : undefined,
       limit: l,
       offset: o,
       order: [[safeOrderBy, safeOrderDir]],
     });
 
+    // manual hydrate business_name
     const bizIds = Array.from(
       new Set(rows.map((r) => r.business_id).filter(Boolean))
     );
@@ -244,10 +402,20 @@ exports.getAllUsersForBusiness = async function getAllUsersForBusiness(
       businesses.forEach((b) => (bizMap[b.id] = b[businessNameField]));
     }
 
-    const items = rows.map((r) => {
-      const shaped = shapeUserBasic(r, businessNameField);
-      return { ...shaped, business_name: bizMap[shaped.business_id] || null };
+    const shaped = rows.map((r) => {
+      const s = shapeUserBasic(r, businessNameField);
+      return { ...s, business_name: bizMap[s.business_id] || null };
     });
+
+    const pkgFieldsMap = await computePackageFieldsBulk(businessId, shaped);
+    const items = shaped.map((u) => ({
+      ...u,
+      ...(pkgFieldsMap.get(Number(u.id)) || {
+        package: { id: null, name: "Custom", is_custom: true },
+        package_name: "Custom",
+        is_custom: true,
+      }),
+    }));
 
     return {
       total: count,
@@ -282,7 +450,17 @@ exports.getUserForBusiness = async function getUserForBusiness(
     });
 
     if (!user) return null;
-    return await shapeUserWithAccess(businessId, userId, user);
+
+    // access (features/permissions) first
+    const withAccess = await shapeUserWithAccess(businessId, userId, user);
+
+    // package fields for this user
+    const pkgFields = await computePackageFieldsSingle(
+      Number(businessId),
+      withAccess
+    );
+
+    return { ...withAccess, ...pkgFields };
   } catch (err) {
     console.error("getUserForBusiness include failed:", {
       message: err?.message,
@@ -295,7 +473,7 @@ exports.getUserForBusiness = async function getUserForBusiness(
     });
     if (!user) return null;
 
-    // Manual hydrate business_name
+    // manual hydrate business_name
     let business_name = null;
     if (user.business_id) {
       const b = await Business.findByPk(user.business_id, {
@@ -308,7 +486,14 @@ exports.getUserForBusiness = async function getUserForBusiness(
       ...shapeUserBasic(user, businessNameField),
       business_name,
     };
-    return await shapeUserWithAccess(businessId, userId, shaped);
+
+    const withAccess = await shapeUserWithAccess(businessId, userId, shaped);
+    const pkgFields = await computePackageFieldsSingle(
+      Number(businessId),
+      withAccess
+    );
+
+    return { ...withAccess, ...pkgFields };
   }
 };
 
@@ -329,6 +514,7 @@ exports.updateUserForBusiness = async function updateUserForBusiness(
     "roles",
     "is_active",
     "settings",
+    "default_package_id", // allow changing default package selection
   ]);
 
   const updates = {};
@@ -379,5 +565,11 @@ exports.updateUserForBusiness = async function updateUserForBusiness(
     } catch {}
   }
 
-  return await shapeUserWithAccess(businessId, userId, shaped);
+  const withAccess = await shapeUserWithAccess(businessId, userId, shaped);
+  const pkgFields = await computePackageFieldsSingle(
+    Number(businessId),
+    withAccess
+  );
+
+  return { ...withAccess, ...pkgFields };
 };

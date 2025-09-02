@@ -1,4 +1,3 @@
-// src/migrations/20250828_110100_create_business_features.js
 "use strict";
 module.exports = {
   async up(q, Sequelize) {
@@ -10,7 +9,7 @@ module.exports = {
         allowNull: false,
         defaultValue: false,
       },
-      limit_value: { type: Sequelize.INTEGER, allowNull: true },
+      // ⬇️ removed: limit_value
       meta_json: { type: Sequelize.JSON, allowNull: true },
       createdAt: {
         type: Sequelize.DATE,
@@ -25,6 +24,7 @@ module.exports = {
         ),
       },
     });
+
     await q.addConstraint("BusinessFeatures", {
       fields: ["business_id", "feature_id"],
       type: "primary key",

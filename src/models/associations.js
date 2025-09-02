@@ -30,6 +30,9 @@ const BusinessPackageFeature = require("./businessPackageFeature");
 const BusinessPackagePermission = require("./businessPackagePermission");
 const BusinessUserPackage = require("./businessUserPackage");
 
+// ✅ Usage / Quotas
+const UsageCounter = require("./usageCounter"); // ✅ now a model, not a function
+
 /* =========================
  * Core relationships
  * =======================*/
@@ -362,6 +365,37 @@ User.hasMany(Report, {
 });
 
 /* =========================
+ * Usage / Quotas
+ * =======================*/
+// Each usage counter row is scoped by business + (optional) user + feature + period_key
+UsageCounter.belongsTo(Business, {
+  foreignKey: "business_id",
+  as: "business",
+  onDelete: "CASCADE",
+  onUpdate: "CASCADE",
+});
+Business.hasMany(UsageCounter, {
+  foreignKey: "business_id",
+  as: "usageCounters",
+  onDelete: "CASCADE",
+  onUpdate: "CASCADE",
+});
+
+// user_id is nullable so business-level counters (aggregates) can use user_id = NULL
+UsageCounter.belongsTo(User, {
+  foreignKey: "user_id",
+  as: "user",
+  onDelete: "SET NULL", // keep business counters even if a user is deleted
+  onUpdate: "CASCADE",
+});
+User.hasMany(UsageCounter, {
+  foreignKey: "user_id",
+  as: "usageCounters",
+  onDelete: "SET NULL",
+  onUpdate: "CASCADE",
+});
+
+/* =========================
  * Initialize scopes after wiring
  * =======================*/
 if (typeof Business.initScopes === "function") Business.initScopes();
@@ -396,4 +430,7 @@ module.exports = {
   BusinessPackageFeature,
   BusinessPackagePermission,
   BusinessUserPackage,
+
+  // ✅ Usage / Quotas
+  UsageCounter,
 };

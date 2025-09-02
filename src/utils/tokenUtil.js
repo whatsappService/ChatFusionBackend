@@ -1,4 +1,3 @@
-//utils/tokenUtil
 "use strict";
 const jwt = require("jsonwebtoken");
 
@@ -6,19 +5,12 @@ const ISSUER = process.env.JWT_ISSUER || "muraasla";
 const ACCESS_EXPIRES = process.env.JWT_EXPIRES_IN || "15m";
 const REFRESH_EXPIRES = process.env.JWT_REFRESH_EXPIRES_IN || "7d";
 
-/**
- * Minimal, stable claims:
- * - sub: user id (standard)
- * - id:  same value for backward-compat with existing code
- * - bid: business id
- * - roles: array of roles
- * - ver: token schema version (bump if you change shape)
- */
+/** Build stable claims placed into both access & refresh tokens */
 function buildJwtClaims(user) {
-  const u = typeof user.toJSON === "function" ? user.toJSON() : user;
+  const u = typeof user?.toJSON === "function" ? user.toJSON() : user;
   return {
     sub: u.id,
-    id: u.id, // keep for compatibility with any code using decoded.id
+    id: u.id, // backward-compat
     bid: u.business?.id ?? u.business_id ?? null,
     roles: Array.isArray(u.roles) ? u.roles : [],
     ver: 1,
@@ -28,7 +20,7 @@ function buildJwtClaims(user) {
 function signAccessToken(user) {
   const claims = buildJwtClaims(user);
   return jwt.sign(claims, process.env.JWT_SECRET, {
-    issuer: ISSUER, // included but NOT enforced at verify unless you add it there
+    issuer: ISSUER,
     algorithm: "HS256",
     expiresIn: ACCESS_EXPIRES,
   });
@@ -55,7 +47,7 @@ const generateTokens = (user, _extrasIgnored = {}) => {
 
 const verifyToken = (token) => {
   if (!process.env.JWT_SECRET) throw new Error("Missing JWT secret key");
-  // Not enforcing issuer by default to avoid breaking older tokens.
+  // If you want to enforce issuer too, add { issuer: ISSUER } below.
   return jwt.verify(token, process.env.JWT_SECRET, { algorithms: ["HS256"] });
 };
 
@@ -67,4 +59,12 @@ const verifyRefreshToken = (refreshToken) => {
   });
 };
 
-module.exports = { generateTokens, verifyToken, verifyRefreshToken };
+// ---- Backward-compat alias (fixes your error) ----
+const verifyAccessToken = verifyToken;
+
+module.exports = {
+  generateTokens,
+  verifyToken,
+  verifyAccessToken, // ← alias used by authMiddleware
+  verifyRefreshToken,
+};

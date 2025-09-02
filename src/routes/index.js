@@ -12,6 +12,7 @@ const businessCategoryRoutes = require("./businessCategoryRoutes");
 // Customers
 const customerRoutes = require("./customerRoutes");
 const customerCategoryRoutes = require("./customerCategoryRoutes");
+const usageRoutes = require("./usageRoutes");
 
 // Messaging
 const messageTemplateRoutes = require("./messageTemplateRoutes");
@@ -76,5 +77,5 @@ router.use("/businesses/:businessId/packages", businessPackageRoutes);
 // Effective access (features + permissions union) for a user in this business
 // e.g. GET /businesses/1/effective-access/1
 router.use("/businesses/:businessId/effective-access", effectiveAccessRoutes);
-
+router.use("/usage", usageRoutes);
 module.exports = router;

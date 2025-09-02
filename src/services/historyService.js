@@ -30,13 +30,20 @@ exports.fetchUserMessages = async (userId, queryParams) => {
 
 /** Fetch history between two dates for a given user’s business. */
 exports.fetchHistoryBetweenDates = async (userId, queryParams) => {
+  console.log("fetchHistoryBetweenDates");
+  
   const user = await User.findByPk(userId, {
     include: { model: Business, as: "business" },
   });
+  console.log(user);
+  
   const apiKey = user?.business?.api_key;
   if (!apiKey) throw new Error("API key not found for this business");
-
+  console.log("API key:", apiKey);
+  
   const url = `${API_BASE}/history/user-history`;
+  console.log("Fetching history between dates from:", url);
+  
   const response = await axios.get(url, {
     params: queryParams,
     headers: { "x-api-key": apiKey },

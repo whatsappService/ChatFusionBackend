@@ -44,14 +44,9 @@ const _featureCodeToIdMap = async (t) => {
 const _mergeFeatureRule = (current, rule) => {
   const next = current
     ? { ...current }
-    : { enabled: false, limit_value: null, meta_json: null, source: "package" };
+    : { enabled: false, meta_json: null, source: "package" };
 
   next.enabled = !!(next.enabled || rule.enabled);
-  if (rule.limit_value != null) {
-    const curVal =
-      next.limit_value == null ? -Infinity : Number(next.limit_value);
-    next.limit_value = Math.max(curVal, Number(rule.limit_value));
-  }
   if (next.meta_json == null && rule.meta_json != null)
     next.meta_json = rule.meta_json;
   if (rule.source) next.source = rule.source; // preserve highest-precedence writer
@@ -188,7 +183,7 @@ exports.createPackage = async (businessId, data) => {
       { transaction: t }
     );
 
-    // features
+    // features (no limit_value anymore)
     if (Array.isArray(data?.features) && data.features.length) {
       const map = await _featureCodeToIdMap(t);
       const rows = data.features
@@ -199,7 +194,6 @@ exports.createPackage = async (businessId, data) => {
             package_id: pkg.id,
             feature_id: fid,
             enabled: !!f.enabled,
-            limit_value: f.limit_value ?? null,
             meta_json: f.meta_json ?? null,
           };
         })
@@ -254,7 +248,7 @@ exports.updatePackage = async (businessId, packageId, data) => {
       await pkg.update(patch, { transaction: t });
     }
 
-    // replace feature rules
+    // replace feature rules (no limit_value)
     if (Array.isArray(data?.features)) {
       await BusinessPackageFeature.destroy({
         where: { package_id: pkg.id },
@@ -270,7 +264,6 @@ exports.updatePackage = async (businessId, packageId, data) => {
               package_id: pkg.id,
               feature_id: fid,
               enabled: !!f.enabled,
-              limit_value: f.limit_value ?? null,
               meta_json: f.meta_json ?? null,
             };
           })
@@ -388,8 +381,8 @@ exports.removePackageFromUser = async (businessId, userId, packageId) => {
  *
  * Returns:
  * {
- *   featuresList: [{ code, enabled: true, limit_value, meta_json, source: "package"|"user" }],
- *   featuresMap:  { [code]: { enabled: true, limit_value, meta_json, source } },
+ *   featuresList: [{ code, enabled: true, meta_json, source: "package"|"user" }],
+ *   featuresMap:  { [code]: { enabled: true, meta_json, source } },
  *   permissions:  string[],
  *   roles: [] // kept for compatibility
  * }
@@ -452,14 +445,14 @@ exports.getEffectiveAccessForUser = async (businessId, userId) => {
   }
 
   // ---- 3) Build user-owned features (start empty; add only what user gets) ----
-  const base = {}; // code -> { enabled, limit_value, meta_json, source }
+  const base = {}; // code -> { enabled, meta_json, source }
 
   // From PACKAGE rules (only if business allows)
   if (activePkgIds.length && BusinessPackageFeature && Feature) {
     const ruleRows = await BusinessPackageFeature.findAll({
       where: { package_id: { [Op.in]: activePkgIds } },
       include: [{ model: Feature, as: "feature", attributes: ["code"] }],
-      attributes: ["enabled", "limit_value", "meta_json"],
+      attributes: ["enabled", "meta_json"],
     });
 
     for (const r of ruleRows) {
@@ -467,7 +460,6 @@ exports.getEffectiveAccessForUser = async (businessId, userId) => {
       if (!isAllowed(code)) continue;
       base[code] = _mergeFeatureRule(base[code], {
         enabled: !!r.enabled,
-        limit_value: r.limit_value,
         meta_json: r.meta_json,
         source: "package",
       });
@@ -479,7 +471,7 @@ exports.getEffectiveAccessForUser = async (businessId, userId) => {
     const ufRows = await UserFeature.findAll({
       where: { user_id: uId },
       include: [{ model: Feature, as: "feature", attributes: ["code"] }],
-      attributes: ["enabled", "limit_value", "meta_json"],
+      attributes: ["enabled", "meta_json"],
     });
 
     for (const r of ufRows) {
@@ -487,13 +479,11 @@ exports.getEffectiveAccessForUser = async (businessId, userId) => {
       if (!isAllowed(code)) continue;
       const cur = base[code] || {
         enabled: false,
-        limit_value: null,
         meta_json: null,
         source: "package",
       };
       base[code] = {
         enabled: r.enabled != null ? !!r.enabled : !!cur.enabled,
-        limit_value: r.limit_value != null ? r.limit_value : cur.limit_value,
         meta_json: r.meta_json != null ? r.meta_json : cur.meta_json,
         source: "user",
       };
@@ -547,7 +537,6 @@ exports.getEffectiveAccessForUser = async (businessId, userId) => {
     .map(([code, v]) => ({
       code,
       enabled: true,
-      limit_value: v.limit_value ?? null,
       meta_json: v.meta_json ?? null,
       source: v.source === "user" ? "user" : "package",
     }))
@@ -558,7 +547,6 @@ exports.getEffectiveAccessForUser = async (businessId, userId) => {
       f.code,
       {
         enabled: true,
-        limit_value: f.limit_value,
         meta_json: f.meta_json,
         source: f.source,
       },

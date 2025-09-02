@@ -18,7 +18,6 @@ BusinessPackageFeature.init(
       primaryKey: true,
     },
     enabled: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
-    limit_value: { type: DataTypes.INTEGER, allowNull: true },
     meta_json: { type: DataTypes.JSON, allowNull: true },
   },
   {

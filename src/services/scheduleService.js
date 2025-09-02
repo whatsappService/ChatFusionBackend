@@ -263,16 +263,18 @@ exports.runNow = async (business_id, id) => {
   const text = replacePlaceholders(row.body || "", vars);
   const files = await fetchMediaAsFiles(row.media_url);
 
-  // messageService expects: businessId, recipient, contents[], files[]
+  // ✅ Enforce/record usage by passing userId + default period ("month")
   const result = await messageService.sendSingleMessage(
     business_id,
     row.to_number,
     [text].filter(Boolean),
-    files
+    files,
+    { userId: row.created_by_user || null, period: "month" }
   );
 
   row.last_run_at = new Date();
   await row.save();
 
-  return { ok: true, result };
+  // If sending failed (including quota block), surface ok=false
+  return { ok: !!result.success, result };
 };

@@ -33,13 +33,7 @@ class User extends Model {
           attributes: ["id", "code", "name", "description"],
           through: {
             model: UserFeature,
-            attributes: [
-              "enabled",
-              "limit_value",
-              "meta_json",
-              "createdAt",
-              "updatedAt",
-            ],
+            attributes: ["enabled", "meta_json", "createdAt", "updatedAt"],
           },
         },
       ],
@@ -84,51 +78,47 @@ class User extends Model {
     const list = (this.get("features") || []).map((f) => ({
       code: f.code,
       enabled: f.UserFeature?.enabled,
-      limit_value: f.UserFeature?.limit_value ?? null,
       meta_json: f.UserFeature?.meta_json ?? null,
     }));
     return Object.fromEntries(list.map((f) => [f.code, f]));
   }
 
-  /**
-   * Effective features (priority):
-   * 1) UserFeature override (if NOT NULL)
-   * 2) BusinessFeature hard cap (0 disables even if package enables)
-   * 3) Union of assigned packages' feature rules (by same business)
-   * 4) Default disabled
-   */
+  // effective features (enabled + meta_json precedence: user -> business -> any package)
   async getEffectiveFeatures() {
     const rows = await sequelize.query(
       `
-      SELECT
-        f.code AS code,
-        CASE
-          WHEN uf.enabled IS NOT NULL THEN uf.enabled
-          WHEN bf.enabled = 0 THEN 0
-          ELSE GREATEST(COALESCE(bf.enabled, 0), COALESCE(MAX(bpf.enabled), 0))
-        END AS enabled,
-        COALESCE(uf.limit_value, bf.limit_value, MAX(bpf.limit_value)) AS limit_value,
-        COALESCE(uf.meta_json, bf.meta_json, JSON_EXTRACT(ANY_VALUE(bpf.meta_json), '$')) AS meta_json,
-        CASE
-          WHEN uf.enabled IS NOT NULL OR uf.limit_value IS NOT NULL OR uf.meta_json IS NOT NULL THEN 'user'
-          WHEN bf.enabled IS NOT NULL OR bf.limit_value IS NOT NULL OR bf.meta_json IS NOT NULL THEN 'business'
-          WHEN COUNT(bpf.feature_id) > 0 THEN 'package'
-          ELSE 'default'
-        END AS source
-      FROM Features f
-      LEFT JOIN BusinessFeatures bf
-        ON bf.feature_id = f.id AND bf.business_id = :businessId
-      LEFT JOIN UserFeatures uf
-        ON uf.feature_id = f.id AND uf.user_id = :userId
-      LEFT JOIN BusinessUserPackages bup
-        ON bup.user_id = :userId
-      LEFT JOIN BusinessPackages bp
-        ON bp.id = bup.package_id AND bp.business_id = :businessId
-      LEFT JOIN BusinessPackageFeatures bpf
-        ON bpf.package_id = bp.id AND bpf.feature_id = f.id
-      GROUP BY f.id, f.code, uf.enabled, uf.limit_value, uf.meta_json, bf.enabled, bf.limit_value, bf.meta_json
-      ORDER BY f.code
-      `,
+    SELECT
+      f.code AS code,
+      CASE
+        WHEN uf.enabled IS NOT NULL THEN uf.enabled
+        WHEN bf.enabled = 0 THEN 0
+        ELSE GREATEST(COALESCE(bf.enabled, 0), COALESCE(MAX(bpf.enabled), 0))
+      END AS enabled,
+      COALESCE(
+        uf.meta_json,
+        bf.meta_json,
+        JSON_EXTRACT(ANY_VALUE(bpf.meta_json), '$')
+      ) AS meta_json,
+      CASE
+        WHEN uf.enabled IS NOT NULL OR uf.meta_json IS NOT NULL THEN 'user'
+        WHEN bf.enabled IS NOT NULL OR bf.meta_json IS NOT NULL THEN 'business'
+        WHEN COUNT(bpf.feature_id) > 0 THEN 'package'
+        ELSE 'default'
+      END AS source
+    FROM Features f
+    LEFT JOIN BusinessFeatures bf
+      ON bf.feature_id = f.id AND bf.business_id = :businessId
+    LEFT JOIN UserFeatures uf
+      ON uf.feature_id = f.id AND uf.user_id = :userId
+    LEFT JOIN BusinessUserPackages bup
+      ON bup.user_id = :userId
+    LEFT JOIN BusinessPackages bp
+      ON bp.id = bup.package_id AND bp.business_id = :businessId
+    LEFT JOIN BusinessPackageFeatures bpf
+      ON bpf.package_id = bp.id AND bpf.feature_id = f.id
+    GROUP BY f.id, f.code, uf.enabled, uf.meta_json, bf.enabled, bf.meta_json
+    ORDER BY f.code
+    `,
       {
         replacements: { businessId: this.business_id, userId: this.id },
         type: QueryTypes.SELECT,
@@ -138,19 +128,13 @@ class User extends Model {
     const list = rows.map((r) => ({
       code: r.code,
       enabled: !!r.enabled,
-      limit_value: r.limit_value ?? null,
       meta_json: r.meta_json ?? null,
       source: r.source,
     }));
     const map = Object.fromEntries(
       list.map((x) => [
         x.code,
-        {
-          enabled: x.enabled,
-          limit_value: x.limit_value,
-          meta_json: x.meta_json,
-          source: x.source,
-        },
+        { enabled: x.enabled, meta_json: x.meta_json, source: x.source },
       ])
     );
     return { list, map };
@@ -226,8 +210,6 @@ User.init(
     email_address: { type: DataTypes.STRING, allowNull: false, unique: true },
     phone_number: { type: DataTypes.STRING, allowNull: false, unique: true },
     password: { type: DataTypes.STRING, allowNull: false },
-
-    // removed: roles
 
     is_active: {
       type: DataTypes.BOOLEAN,

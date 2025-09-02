@@ -24,13 +24,7 @@ class Business extends Model {
           attributes: ["id", "code", "name", "description"],
           through: {
             model: BusinessFeature,
-            attributes: [
-              "enabled",
-              "limit_value",
-              "meta_json",
-              "createdAt",
-              "updatedAt",
-            ],
+            attributes: ["enabled", "meta_json", "createdAt", "updatedAt"],
           },
         },
       ],
@@ -78,13 +72,7 @@ class Business extends Model {
           attributes: ["id", "code", "name", "description"],
           through: {
             model: BusinessFeature,
-            attributes: [
-              "enabled",
-              "limit_value",
-              "meta_json",
-              "createdAt",
-              "updatedAt",
-            ],
+            attributes: ["enabled", "meta_json", "createdAt", "updatedAt"],
           },
         },
         {
@@ -127,12 +115,11 @@ class Business extends Model {
     return this.scope("withAll").findByPk(id);
   }
 
-  // Map business-level toggles: { [code]: { enabled, limit_value, meta_json } }
+  // Map business-level toggles: { [code]: { enabled, meta_json } }
   featureMap() {
     const list = (this.get("features") || []).map((f) => ({
       code: f.code,
       enabled: !!(f.BusinessFeature && f.BusinessFeature.enabled),
-      limit_value: f.BusinessFeature ? f.BusinessFeature.limit_value : null,
       meta_json: f.BusinessFeature ? f.BusinessFeature.meta_json : null,
     }));
     return Object.fromEntries(
@@ -140,7 +127,6 @@ class Business extends Model {
         f.code,
         {
           enabled: f.enabled,
-          limit_value: f.limit_value,
           meta_json: f.meta_json,
         },
       ])
@@ -159,7 +145,6 @@ class Business extends Model {
       features: (p.featureRules || []).map((r) => ({
         code: r.feature?.code,
         enabled: !!r.enabled,
-        limit_value: r.limit_value ?? null,
         meta_json: r.meta_json ?? null,
       })),
       permissions: (p.permissions || []).map((perm) => perm.perm),

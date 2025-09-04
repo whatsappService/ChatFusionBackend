@@ -1,3 +1,4 @@
+// src/middleware/requirePermission.js
 "use strict";
 
 /**

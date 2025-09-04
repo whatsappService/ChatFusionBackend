@@ -9,31 +9,12 @@ const businessController = require("../controllers/businessController");
 const authMiddleware = require("../middleware/authMiddleware");
 const roleMiddleware = require("../middleware/roleMiddleware");
 const requireFeature = require("../middleware/requireFeature");
+const requireBusinessScope = require("../middleware/requireBusinessScope"); // ⬅️ NEW
 
 // Controllers
 const BusinessUserController = require("../controllers/BusinessUserController");
 const AccessCatalogController = require("../controllers/AccessCatalogController");
 const BusinessPackageController = require("../controllers/BusinessPackageController");
-
-/* -------------------------------------------------------------------------- */
-/* Helper: allow super-admin OR same-business users                           */
-/* -------------------------------------------------------------------------- */
-function ensureSameBusinessOrSuperAdmin(req, res, next) {
-  try {
-    const roles = Array.isArray(req.user?.roles) ? req.user.roles : [];
-    if (roles.includes("super-admin")) return next();
-
-    const paramBusinessId = Number(req.params.businessId || req.params.id);
-    if (!paramBusinessId) {
-      return res.status(400).json({ error: "InvalidBusinessId" });
-    }
-    if (Number(req.user?.business_id) === paramBusinessId) return next();
-
-    return res.status(403).json({ error: "AccessDenied" });
-  } catch (e) {
-    next(e);
-  }
-}
 
 /* ========================================================================== */
 /*                               Business CRUD                                */
@@ -41,7 +22,7 @@ function ensureSameBusinessOrSuperAdmin(req, res, next) {
 router.post(
   "/",
   authMiddleware,
-  roleMiddleware(["super-admin"]),
+  roleMiddleware(["admin"]),
   businessController.createBusiness
 );
 
@@ -52,14 +33,14 @@ router.get("/:id", authMiddleware, businessController.getBusinessById);
 router.put(
   "/:id",
   authMiddleware,
-  roleMiddleware(["super-admin"]),
+  roleMiddleware(["admin"]),
   businessController.updateBusiness
 );
 
 router.delete(
   "/:id",
   authMiddleware,
-  roleMiddleware(["super-admin"]),
+  roleMiddleware(["admin"]),
   businessController.deleteBusiness
 );
 
@@ -70,7 +51,7 @@ router.get(
   "/:businessId/users",
   authMiddleware,
   requireFeature("users"),
-  ensureSameBusinessOrSuperAdmin,
+  requireBusinessScope(), // ⬅️ replaces ensureSameBusinessOrSuperAdmin
   BusinessUserController.list
 );
 
@@ -78,7 +59,7 @@ router.get(
   "/:businessId/users/:userId",
   authMiddleware,
   requireFeature("users"),
-  ensureSameBusinessOrSuperAdmin,
+  requireBusinessScope(),
   BusinessUserController.getOne
 );
 
@@ -86,7 +67,7 @@ router.put(
   "/:businessId/users/:userId",
   authMiddleware,
   requireFeature("users"),
-  ensureSameBusinessOrSuperAdmin,
+  requireBusinessScope(),
   BusinessUserController.update
 );
 
@@ -94,7 +75,7 @@ router.patch(
   "/:businessId/users/:userId",
   authMiddleware,
   requireFeature("users"),
-  ensureSameBusinessOrSuperAdmin,
+  requireBusinessScope(),
   BusinessUserController.patch
 );
 
@@ -103,7 +84,7 @@ router.get(
   "/:businessId/users/:userId/effective-access",
   authMiddleware,
   requireFeature("users"),
-  ensureSameBusinessOrSuperAdmin,
+  requireBusinessScope(),
   BusinessUserController.effectiveAccess
 );
 
@@ -112,7 +93,7 @@ router.put(
   "/:businessId/users/:userId/access",
   authMiddleware,
   requireFeature("users"),
-  ensureSameBusinessOrSuperAdmin,
+  requireBusinessScope(),
   BusinessUserController.updateAccess
 );
 
@@ -123,7 +104,7 @@ router.get(
   "/:businessId/access-catalog",
   authMiddleware,
   requireFeature("users"),
-  ensureSameBusinessOrSuperAdmin,
+  requireBusinessScope(),
   AccessCatalogController.get
 );
 
@@ -136,7 +117,7 @@ router.get(
   "/:businessId/packages",
   authMiddleware,
   requireFeature("users"),
-  ensureSameBusinessOrSuperAdmin,
+  requireBusinessScope(),
   BusinessPackageController.list
 );
 
@@ -144,7 +125,7 @@ router.get(
   "/:businessId/packages/:packageId",
   authMiddleware,
   requireFeature("users"),
-  ensureSameBusinessOrSuperAdmin,
+  requireBusinessScope(),
   BusinessPackageController.get
 );
 
@@ -153,7 +134,7 @@ router.get(
   "/:businessId/packages/:packageId/effective-access",
   authMiddleware,
   requireFeature("users"),
-  ensureSameBusinessOrSuperAdmin,
+  requireBusinessScope(),
   BusinessPackageController.packageEffectiveAccess
 );
 
@@ -161,21 +142,24 @@ router.get(
 router.post(
   "/:businessId/packages",
   authMiddleware,
-  roleMiddleware(["super-admin", "business-admin"]),
+  roleMiddleware(["admin", "business-admin"]),
+  requireBusinessScope(), // ⬅️ enforces same-business; admin can cross-tenant
   BusinessPackageController.create
 );
 
 router.put(
   "/:businessId/packages/:packageId",
   authMiddleware,
-  roleMiddleware(["super-admin", "business-admin"]),
+  roleMiddleware(["admin", "business-admin"]),
+  requireBusinessScope(),
   BusinessPackageController.update
 );
 
 router.delete(
   "/:businessId/packages/:packageId",
   authMiddleware,
-  roleMiddleware(["super-admin", "business-admin"]),
+  roleMiddleware(["admin", "business-admin"]),
+  requireBusinessScope(),
   BusinessPackageController.remove
 );
 
@@ -183,14 +167,16 @@ router.delete(
 router.post(
   "/:businessId/packages/:packageId/users/:userId",
   authMiddleware,
-  roleMiddleware(["super-admin", "business-admin"]),
+  roleMiddleware(["admin", "business-admin"]),
+  requireBusinessScope(),
   BusinessPackageController.assignUser
 );
 
 router.delete(
   "/:businessId/packages/:packageId/users/:userId",
   authMiddleware,
-  roleMiddleware(["super-admin", "business-admin"]),
+  roleMiddleware(["admin", "business-admin"]),
+  requireBusinessScope(),
   BusinessPackageController.unassignUser
 );
 
@@ -199,7 +185,7 @@ router.get(
   "/:businessId/users/:userId/packages",
   authMiddleware,
   requireFeature("users"),
-  ensureSameBusinessOrSuperAdmin,
+  requireBusinessScope(),
   BusinessPackageController.listUserAssignments
 );
 
@@ -207,7 +193,7 @@ router.get(
   "/:businessId/packages/:packageId/users",
   authMiddleware,
   requireFeature("users"),
-  ensureSameBusinessOrSuperAdmin,
+  requireBusinessScope(),
   BusinessPackageController.listPackageAssignments
 );
 

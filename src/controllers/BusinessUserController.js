@@ -173,14 +173,28 @@ exports.updateAccess = async (req, res, next) => {
       return res.status(400).json({ error: "BadRequest" });
     }
 
-    const { features = [], permissions = [] } = req.body || {};
-    if (!Array.isArray(features) || !Array.isArray(permissions)) {
-      return res.status(400).json({ error: "InvalidPayload" });
-    }
+    const {
+      features = [],
+      permissions = [],
+      mode = "replace",
+      addPermissions = [],
+      removePermissions = [],
+      addFeatures = [],
+      removeFeatures = [],
+      denyPermissions = [],
+    } = req.body || {};
+    if (!Array.isArray(features)) req.body.features = [];
+    if (!Array.isArray(permissions)) req.body.permissions = [];
 
     await BusinessUserService.updateUserAccess(businessId, userId, {
       features,
       permissions,
+      mode,
+      addPermissions,
+      removePermissions,
+      addFeatures,
+      removeFeatures,
+      denyPermissions,
     });
 
     // Return the fresh enriched user (with usage caps/usage if your service includes them)

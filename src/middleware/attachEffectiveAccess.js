@@ -1,3 +1,4 @@
+// src/middleware/attachEffectiveAccess.js
 "use strict";
 
 const BusinessPackageService = require("../services/BusinessPackageService");

@@ -1,3 +1,4 @@
+// src/middleware/roleMiddleware.js
 "use strict";
 
 /**
@@ -48,6 +49,17 @@ module.exports = function roleMiddleware(allowed = []) {
       const roles = Array.isArray(req.user?.roles) ? req.user.roles : [];
       const have = expandRoles(roles);
 
+      // ⬇️ Permission-based bypass (optional)
+      const permSet =
+        req?.access?.permSet || new Set(req?.user?.permissions || []);
+      if (
+        permSet.has("*") ||
+        permSet.has("users.manage") ||
+        permSet.has("multiuser.manage") ||
+        permSet.has("team.manage")
+      ) {
+        return next();
+      }
       const ok =
         requiredSet.size === 0 ||
         Array.from(requiredSet).some((r) => have.has(r));

@@ -332,7 +332,6 @@ const desiredUserAttrs = [
   "full_name",
   "email_address",
   "phone_number",
-  "roles",
   "is_active",
   "is_deleted",
   "business_id",
@@ -571,12 +570,11 @@ exports.updateUserForBusiness = async function updateUserForBusiness(
     "full_name",
     "email_address",
     "phone_number",
-    "roles",
     "is_active",
     "settings",
     "default_package_id", // allow changing default package selection
   ]);
-    // If the client asked to change the user's package, switch it *properly*:
+  // If the client asked to change the user's package, switch it *properly*:
   const requestedPkgIdRaw =
     patch.package_id ?? patch.packageId ?? patch.default_package_id;
   if (requestedPkgIdRaw != null && requestedPkgIdRaw !== "") {
@@ -658,10 +656,23 @@ exports.updateUserForBusiness = async function updateUserForBusiness(
  * - Features: upsert per feature (enabled + meta_json). We persist even enabled=false to override package.
  * - Permissions: replace all ALLOW rows with the provided list; keep DENY rows intact.
  */
+// BusinessUserService.js
+// services/BusinessUserService.js
 exports.updateUserAccess = async function updateUserAccess(
   businessId,
   userId,
-  { features = [], permissions = [] } = {}
+  {
+    // legacy payload
+    features = [],
+    permissions = [],
+    // new patch-style fields
+    mode = "replace", // "replace" | "merge"
+    addPermissions = [],
+    removePermissions = [],
+    addFeatures = [], // optional: feature overrides to add
+    removeFeatures = [], // optional: feature overrides to remove
+    denyPermissions = [],
+  } = {}
 ) {
   const bId = Number(businessId);
   const uId = Number(userId);
@@ -677,7 +688,8 @@ exports.updateUserAccess = async function updateUserAccess(
   }
 
   return sequelize.transaction(async (t) => {
-    /* ---------- map feature code -> id for incoming payload ---------- */
+    /* ------------------------------ FEATURES ------------------------------ */
+    // (Keep existing replace for features; support optional merge ops.)
     const codes = Array.from(
       new Set(
         (features || [])
@@ -687,66 +699,182 @@ exports.updateUserAccess = async function updateUserAccess(
     );
 
     const codeToId = {};
-    if (codes.length && Feature) {
-      const rows = await Feature.findAll({
-        where: { code: { [Op.in]: codes } },
-        attributes: ["id", "code"],
-        transaction: t,
-        raw: true,
-      });
-      rows.forEach((r) => (codeToId[r.code] = r.id));
-    }
-
-    /* ---------- replace overrides for the provided features ---------- */
-    const featureIds = Object.values(codeToId);
-    if (featureIds.length) {
-      await UserFeature.destroy({
-        where: { user_id: uId, feature_id: { [Op.in]: featureIds } },
-        transaction: t,
-      });
-
-      const rows = features
-        .map((f) => {
-          const fid = codeToId[f.code];
-          if (!fid) return null;
-          const enabled = !!f.enabled;
-          const meta_json =
-            f.meta_json && typeof f.meta_json === "object" ? f.meta_json : null;
-          return {
-            user_id: uId,
-            feature_id: fid,
-            enabled,
-            meta_json,
-          };
-        })
-        .filter(Boolean);
-
-      if (rows.length) {
-        await UserFeature.bulkCreate(rows, { transaction: t });
+    if (
+      (codes.length || addFeatures.length || removeFeatures.length) &&
+      Feature
+    ) {
+      const want = Array.from(
+        new Set([
+          ...codes,
+          ...addFeatures.map((f) => f.code).filter(Boolean),
+          ...removeFeatures.map((c) => c).filter(Boolean),
+        ])
+      );
+      if (want.length) {
+        const rows = await Feature.findAll({
+          where: { code: { [Op.in]: want } },
+          attributes: ["id", "code"],
+          transaction: t,
+          raw: true,
+        });
+        rows.forEach((r) => (codeToId[r.code] = r.id));
       }
     }
 
-    /* ---------- replace ALLOW permissions with the provided list ---------- */
-    await UserPermission.destroy({
-      where: { user_id: uId, effect: "ALLOW" },
-      transaction: t,
-    });
+    if (mode === "replace") {
+      // Replace only for the provided feature set (legacy behavior)
+      if (codes.length) {
+        await UserFeature.destroy({
+          where: {
+            user_id: uId,
+            feature_id: { [Op.in]: Object.values(codeToId) },
+          },
+          transaction: t,
+        });
+        const rows = (features || [])
+          .map((f) => {
+            const fid = codeToId[f.code];
+            if (!fid) return null;
+            return {
+              user_id: uId,
+              feature_id: fid,
+              enabled: !!f.enabled,
+              meta_json:
+                f.meta_json && typeof f.meta_json === "object"
+                  ? f.meta_json
+                  : null,
+            };
+          })
+          .filter(Boolean);
+        if (rows.length) await UserFeature.bulkCreate(rows, { transaction: t });
+      }
+    } else {
+      // merge/patch for features (optional usage)
+      if (addFeatures.length) {
+        const rows = addFeatures
+          .map((f) => {
+            const fid = codeToId[f.code];
+            if (!fid) return null;
+            return {
+              user_id: uId,
+              feature_id: fid,
+              enabled: !!f.enabled,
+              meta_json:
+                f.meta_json && typeof f.meta_json === "object"
+                  ? f.meta_json
+                  : null,
+            };
+          })
+          .filter(Boolean);
+        if (rows.length) await UserFeature.bulkCreate(rows, { transaction: t });
+      }
+      if (removeFeatures.length) {
+        const fids = removeFeatures
+          .map((code) => codeToId[code])
+          .filter(Boolean);
+        if (fids.length) {
+          await UserFeature.destroy({
+            where: { user_id: uId, feature_id: { [Op.in]: fids } },
+            transaction: t,
+          });
+        }
+      }
+    }
 
-    const cleanPerms = Array.from(
-      new Set(
-        (permissions || [])
-          .map((p) => (typeof p === "string" ? p.trim() : ""))
-          .filter(Boolean)
-      )
-    );
+    /* ---------------------------- PERMISSIONS ---------------------------- */
+    const clean = (arr) =>
+      Array.from(
+        new Set(
+          (arr || [])
+            .map((p) => (typeof p === "string" ? p.trim() : ""))
+            .filter(Boolean)
+        )
+      );
 
-    if (cleanPerms.length) {
-      const permRows = cleanPerms.map((perm) => ({
-        user_id: uId,
-        perm,
-        effect: "ALLOW",
-      }));
-      await UserPermission.bulkCreate(permRows, { transaction: t });
+    if (mode === "replace") {
+      // Replace only if client provided a permissions array
+      if (Array.isArray(permissions)) {
+        await UserPermission.destroy({
+          where: { user_id: uId, effect: "ALLOW" },
+          transaction: t,
+        });
+        const allow = clean(permissions);
+        if (allow.length) {
+          await UserPermission.bulkCreate(
+            allow.map((perm) => ({ user_id: uId, perm, effect: "ALLOW" })),
+            { transaction: t }
+          );
+        }
+      }
+      // 3) add/ensure DENY for any perms we explicitly want to block
+      const denies = clean(denyPermissions);
+      if (denies.length) {
+        const existing = await UserPermission.findAll({
+          where: { user_id: uId, effect: "DENY", perm: { [Op.in]: denies } },
+          attributes: ["perm"],
+          transaction: t,
+          raw: true,
+        });
+        const have = new Set(existing.map((r) => r.perm));
+        const toInsert = denies.filter((p) => !have.has(p));
+        if (toInsert.length) {
+          await UserPermission.bulkCreate(
+            toInsert.map((perm) => ({ user_id: uId, perm, effect: "DENY" })),
+            { transaction: t }
+          );
+        }
+      }
+      // DENY rows remain untouched
+    } else {
+      // PATCH behavior
+
+      const adds = clean(addPermissions);
+      const removes = clean(removePermissions);
+
+      // 1) ADD: remove DENY for those perms, ensure ALLOW exists
+      if (adds.length) {
+        await UserPermission.destroy({
+          where: { user_id: uId, effect: "DENY", perm: { [Op.in]: adds } },
+          transaction: t,
+        });
+        const existing = await UserPermission.findAll({
+          where: { user_id: uId, effect: "ALLOW", perm: { [Op.in]: adds } },
+          attributes: ["perm"],
+          transaction: t,
+          raw: true,
+        });
+        const have = new Set(existing.map((r) => r.perm));
+        const toInsert = adds.filter((p) => !have.has(p));
+        if (toInsert.length) {
+          await UserPermission.bulkCreate(
+            toInsert.map((perm) => ({ user_id: uId, perm, effect: "ALLOW" })),
+            { transaction: t }
+          );
+        }
+      }
+
+      // 2) REMOVE: drop ALLOW for those perms; add DENY so package/wildcard grants are blocked
+      if (removes.length) {
+        await UserPermission.destroy({
+          where: { user_id: uId, effect: "ALLOW", perm: { [Op.in]: removes } },
+          transaction: t,
+        });
+        // add DENY if not already present
+        const existingDeny = await UserPermission.findAll({
+          where: { user_id: uId, effect: "DENY", perm: { [Op.in]: removes } },
+          attributes: ["perm"],
+          transaction: t,
+          raw: true,
+        });
+        const haveDeny = new Set(existingDeny.map((r) => r.perm));
+        const toDeny = removes.filter((p) => !haveDeny.has(p));
+        if (toDeny.length) {
+          await UserPermission.bulkCreate(
+            toDeny.map((perm) => ({ user_id: uId, perm, effect: "DENY" })),
+            { transaction: t }
+          );
+        }
+      }
     }
   });
 };

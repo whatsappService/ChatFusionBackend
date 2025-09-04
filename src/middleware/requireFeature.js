@@ -1,3 +1,4 @@
+// src/middleware/requireFeature.js
 "use strict";
 
 /**

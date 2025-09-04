@@ -8,7 +8,11 @@ class UsageCounter extends Model {}
 
 UsageCounter.init(
   {
-    id: { type: DataTypes.INTEGER, autoIncrement: true, primaryKey: true },
+    id: {
+      type: DataTypes.BIGINT.UNSIGNED,
+      autoIncrement: true,
+      primaryKey: true,
+    },
 
     // ❗ match Users.id / Businesses.id (both are INTEGER in your code)
     business_id: { type: DataTypes.INTEGER, allowNull: false },

@@ -25,10 +25,10 @@ const upload = multer({
 });
 
 const chain = [
-  authenticateUser,
-  requireFeature("ai_chatbot"),
-  requirePermission("chatbot.manage"),
-];
+      authenticateUser,
+      requireFeature("chatbot"),
+      requirePermission("chatbot.manage"),
+    ];
 
 // Config
 router.get("/config", ...chain, chatbotController.getConfig);

@@ -208,12 +208,13 @@ exports.importCustomersFromExcel = async (
             }
 
             // Normalize gender: if gender is provided, convert to lower case and if it equals "notset", change to "not_set"
-            const normalizedGender =
-              gender && gender.toLowerCase() === "not_set"
-                ? "not_set"
-                : gender
-                ? gender.toLowerCase()
-                : "not_set";
+            const normalizedGender = (() => {
+              const g = (gender || "").toString().trim().toLowerCase();
+              if (!g) return "not_set";
+              if (g === "notset" || g === "not_set" || g === "unspecified")
+                return "not_set";
+              return g === "male" || g === "female" ? g : "not_set";
+            })();
 
             const newCustomerData = {
               user_id: userId,

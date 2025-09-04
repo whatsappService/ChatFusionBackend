@@ -9,8 +9,8 @@ const multiUserController = require("../controllers/multiUserController");
 const router = express.Router();
 const chain = [
   authenticateUser,
-  requireFeature("multi_user"),
-  requirePermission("team.manage"),
+  requireFeature("users"),
+  requirePermission("multiuser.manage"),
 ];
 
 router.get("/members", ...chain, multiUserController.listMembers);

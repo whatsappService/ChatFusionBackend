@@ -37,12 +37,12 @@ const requireMediaIfFiles = (req, res, next) => {
   return requireFeature("media_attachments")(req, res, next);
 };
 
-// Single send (auth/feature/perm FIRST, then parse files)
+// Single send
 router.post(
   "/send-single",
   authenticateUser,
   requireFeature("single_messages"),
-  requirePermission("messages.single"),
+  requirePermission("messages.send.single"),
   upload.array("files", 10),
   requireMediaIfFiles,
   messageController.sendSingleMessage
@@ -53,7 +53,7 @@ router.post(
   "/send-bulk",
   authenticateUser,
   requireFeature("bulk_send"),
-  requirePermission("messages.bulk"),
+  requirePermission("messages.send.bulk"),
   upload.fields([
     { name: "globalFiles", maxCount: 10 },
     { name: "personalFiles", maxCount: 50 },

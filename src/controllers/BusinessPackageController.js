@@ -3,6 +3,7 @@
 const BusinessPackageService = require("../services/BusinessPackageService");
 
 class BusinessPackageController {
+  /* ------------------------------- CRUD (READ) ------------------------------ */
   static async list(req, res, next) {
     try {
       const { businessId } = req.params;
@@ -22,13 +23,48 @@ class BusinessPackageController {
         Number(businessId),
         Number(packageId)
       );
-      if (!data) return res.status(404).json({ error: "Not found" });
+      if (!data) return res.status(404).json({ error: "NotFound" });
       res.json(data);
     } catch (e) {
       next(e);
     }
   }
 
+  /* -------- NEW: package-scoped effective access for preview in UI --------- */
+  static async packageEffectiveAccess(req, res, next) {
+    try {
+      const { businessId, packageId } = req.params;
+
+      // Use your service that loads a package with featureRules + permissions
+      const pkg = await BusinessPackageService.getPackageById(
+        Number(businessId),
+        Number(packageId)
+      );
+      if (!pkg) return res.status(404).json({ error: "NotFound" });
+
+      const featuresList = Array.isArray(pkg.featureRules)
+        ? pkg.featureRules
+            .filter((r) => r?.enabled && r?.feature?.code)
+            .map((r) => ({
+              code: r.feature.code,
+              name: r.feature.name || r.feature.code,
+              enabled: true,
+              meta_json: r.meta_json ?? null,
+              source: "package",
+            }))
+        : [];
+
+      const permissions = Array.isArray(pkg.permissions)
+        ? pkg.permissions.map((p) => p.perm).filter(Boolean)
+        : [];
+
+      return res.json({ featuresList, permissions });
+    } catch (e) {
+      next(e);
+    }
+  }
+
+  /* ------------------------------ CRUD (WRITE) ------------------------------ */
   static async create(req, res, next) {
     try {
       const { businessId } = req.params;
@@ -69,6 +105,7 @@ class BusinessPackageController {
     }
   }
 
+  /* ------------------------------- Assignments ------------------------------ */
   static async assignUser(req, res, next) {
     try {
       const { businessId, packageId, userId } = req.params;
@@ -123,6 +160,7 @@ class BusinessPackageController {
     }
   }
 
+  /* ---------------- USER-scoped effective access (kept as-is) --------------- */
   static async effectiveAccess(req, res, next) {
     try {
       const { businessId, userId } = req.params;

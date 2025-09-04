@@ -34,10 +34,13 @@ exports.refreshToken = async (req, res) => {
   }
 };
 
+// controllers/authController.js
 exports.getAuthUser = async (req, res) => {
   try {
-    const payload = await authService.getAuthUser(req.user.id);
-    res.json(payload); // same rich payload as login
+    const uid = req.user?.id ?? req.user?.sub;
+    if (!uid) return res.status(401).json({ error: "Unauthenticated" });
+    const payload = await authService.getAuthUser(uid);
+    res.json(payload);
   } catch (error) {
     res.status(404).json({ error: error.message });
   }

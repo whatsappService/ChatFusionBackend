@@ -5,17 +5,34 @@
 const permissionMatrix = {
   "super-admin": ["*"],
   admin: [
-    "whatsapp.manage",
-    "customers.read", "customers.create", "customers.update", "customers.delete",
-    "categories.read", "categories.create", "categories.update", "categories.delete",
-    "templates.read", "templates.create", "templates.update", "templates.delete",
-    "analytics.view", "reports.export",
-    "messages.single", "messages.bulk", "messages.schedule",
+    "webhooks.manage",
+    "customers.read",
+    "customers.write",
+    "templates.read",
+    "templates.write",
+    "reports.view",
+    "messages.read",
+    "messages.send",
+    "bulk.read",
+    "bulk.send",
+    "schedules.read",
+    "schedules.create",
+    "schedules.update",
+    "schedules.delete",
   ],
   "customer-manager": [
-    "customers.read", "customers.create", "customers.update", "customers.delete",
-    "categories.read", "categories.create", "categories.update", "categories.delete",
-    "templates.read", "templates.create", "templates.update", "templates.delete",
+    "customers.read",
+    "customers.create",
+    "customers.update",
+    "customers.delete",
+    "categories.read",
+    "categories.create",
+    "categories.update",
+    "categories.delete",
+    "templates.read",
+    "templates.create",
+    "templates.update",
+    "templates.delete",
   ],
   analyst: ["analytics.view", "reports.export"],
   "whatsapp-admin": ["whatsapp.manage"],
@@ -50,7 +67,8 @@ function checkPermission(ctx, needed) {
   const roles = Array.isArray(ctx?.roles) ? ctx.roles : [];
   const rolePerms = gatherRolePermissions(roles);
 
-  const overrides = ctx?.overrides && typeof ctx.overrides === "object" ? ctx.overrides : null;
+  const overrides =
+    ctx?.overrides && typeof ctx.overrides === "object" ? ctx.overrides : null;
   const allow = new Set([
     ...rolePerms,
     ...(Array.isArray(overrides?.allow) ? overrides.allow : []),
@@ -66,8 +84,10 @@ function checkPermission(ctx, needed) {
 /** Convenience: Set of resolved permissions (role + allow minus deny) */
 function getUserPermissions(roles = [], overrides = null) {
   const allow = new Set(gatherRolePermissions(roles));
-  if (Array.isArray(overrides?.allow)) for (const p of overrides.allow) allow.add(p);
-  if (Array.isArray(overrides?.deny))  for (const p of overrides.deny)  allow.delete(p);
+  if (Array.isArray(overrides?.allow))
+    for (const p of overrides.allow) allow.add(p);
+  if (Array.isArray(overrides?.deny))
+    for (const p of overrides.deny) allow.delete(p);
   return allow; // Set<string>
 }
 

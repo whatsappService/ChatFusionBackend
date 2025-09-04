@@ -10,7 +10,7 @@ const requirePermission = require("../middleware/requirePermission");
 
 const mustManageWhatsapp = [
   authMiddleware,
-  requireFeature("api_access"), // the tenant must have API access enabled
+  requireFeature("integrations.whatsapp"),
   requirePermission("whatsapp.manage"),
 ];
 

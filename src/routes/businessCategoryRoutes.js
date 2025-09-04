@@ -5,11 +5,31 @@ const router = express.Router();
 
 const businessCategoryController = require("../controllers/businessCategoryController");
 
-// Public catalog (if you want these protected, add authMiddleware)
-router.post("/", businessCategoryController.createCategory);
+const authMiddleware = require("../middleware/authMiddleware");
+const roleMiddleware = require("../middleware/roleMiddleware");
+
+// Public read
 router.get("/", businessCategoryController.getAllCategories);
 router.get("/:id", businessCategoryController.getCategoryById);
-router.put("/:id", businessCategoryController.updateCategory);
-router.delete("/:id", businessCategoryController.deleteCategory);
+
+// Admin write
+router.post(
+  "/",
+  authMiddleware,
+  roleMiddleware(["super-admin"]),
+  businessCategoryController.createCategory
+);
+router.put(
+  "/:id",
+  authMiddleware,
+  roleMiddleware(["super-admin"]),
+  businessCategoryController.updateCategory
+);
+router.delete(
+  "/:id",
+  authMiddleware,
+  roleMiddleware(["super-admin"]),
+  businessCategoryController.deleteCategory
+);
 
 module.exports = router;

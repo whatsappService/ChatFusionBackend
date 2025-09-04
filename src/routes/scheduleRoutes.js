@@ -25,43 +25,83 @@ const requireMediaIfFiles = (req, res, next) => {
     : next();
 };
 
-const chain = [
-  authenticateUser,
-  requireFeature("scheduled_messages"),
-  requirePermission("messages.schedule"),
-];
+const base = [authenticateUser, requireFeature("scheduled_messages")];
 
-// Create schedule
+/* Create schedule */
 router.post(
   "/",
-  ...chain,
+  ...base,
+  requirePermission("schedules.create"),
   upload.array("files", 10),
   requireMediaIfFiles,
   scheduleController.createSchedule
 );
 
-// List / Get
-router.get("/", ...chain, scheduleController.listSchedules);
-router.get("/:id", ...chain, scheduleController.getSchedule);
+/* List / Get */
+router.get(
+  "/",
+  ...base,
+  requirePermission("schedules.read"),
+  scheduleController.listSchedules
+);
+router.get(
+  "/:id",
+  ...base,
+  requirePermission("schedules.read"),
+  scheduleController.getSchedule
+);
 
-// Update / lifecycle
+/* Update / lifecycle */
 router.patch(
   "/:id",
-  ...chain,
+  ...base,
+  requirePermission("schedules.update"),
   upload.array("files", 10),
   requireMediaIfFiles,
   scheduleController.updateSchedule
 );
 
-router.post("/:id/pause", ...chain, scheduleController.pauseSchedule);
-router.post("/:id/resume", ...chain, scheduleController.resumeSchedule);
-router.post("/:id/cancel", ...chain, scheduleController.cancelSchedule);
-router.delete("/:id", ...chain, scheduleController.deleteSchedule);
+router.post(
+  "/:id/pause",
+  ...base,
+  requirePermission("schedules.update"),
+  scheduleController.pauseSchedule
+);
+router.post(
+  "/:id/resume",
+  ...base,
+  requirePermission("schedules.update"),
+  scheduleController.resumeSchedule
+);
+router.post(
+  "/:id/cancel",
+  ...base,
+  requirePermission("schedules.update"),
+  scheduleController.cancelSchedule
+);
 
-// Preview cron
-router.post("/preview", ...chain, scheduleController.previewNextRuns);
+/* Delete */
+router.delete(
+  "/:id",
+  ...base,
+  requirePermission("schedules.delete"),
+  scheduleController.deleteSchedule
+);
 
-// Run now
-router.post("/:id/run-now", ...chain, scheduleController.runNow);
+/* Preview cron */
+router.post(
+  "/preview",
+  ...base,
+  requirePermission("schedules.read"),
+  scheduleController.previewNextRuns
+);
+
+/* Run now (optional stronger perm; keep update) */
+router.post(
+  "/:id/run-now",
+  ...base,
+  requirePermission("schedules.update"),
+  scheduleController.runNow
+);
 
 module.exports = router;

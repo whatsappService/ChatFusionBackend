@@ -11,7 +11,7 @@ const router = express.Router();
 const chain = [
   authenticateUser,
   requireFeature("api_access"),
-  requirePermission("api_access.manage"),
+  requirePermission("api.manage"),
 ];
 
 router.get("/keys", ...chain, apiAccessController.listKeys);
@@ -22,7 +22,7 @@ router.post("/keys/:id/rotate", ...chain, apiAccessController.rotateKey);
 router.post("/keys/:id/revoke", ...chain, apiAccessController.revokeKey);
 router.delete("/keys/:id", ...chain, apiAccessController.deleteKey);
 
-// Catalog of scopes (same protection; adjust if you want read-only access)
+// Catalog of scopes
 router.get("/scopes", ...chain, apiAccessController.listScopes);
 
 module.exports = router;

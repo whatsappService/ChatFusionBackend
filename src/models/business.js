@@ -161,7 +161,11 @@ Business.init(
     api_key: { type: DataTypes.STRING, allowNull: true },
     is_active: { type: DataTypes.BOOLEAN, defaultValue: true },
     is_deleted: { type: DataTypes.BOOLEAN, defaultValue: false },
-    category_id: { type: DataTypes.INTEGER, allowNull: false },
+    category_id: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      defaultValue: null,
+    },
   },
   {
     sequelize,

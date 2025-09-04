@@ -99,7 +99,29 @@ async function attachEffectiveAccess(shapedUser, providedBusinessId) {
       : [];
     const featuresMap = eff?.featuresMap || {};
     const permissions = Array.isArray(eff?.permissions) ? eff.permissions : [];
-    return { ...shapedUser, featuresList, featuresMap, permissions };
+    // Adopt canonical package fields so “Custom/Admin” is consistent everywhere
+    const pkgFields = {
+      package: eff?.package || shapedUser.package,
+      package_name:
+        typeof eff?.package_name === "string"
+          ? eff.package_name
+          : shapedUser.package_name,
+      is_custom:
+        typeof eff?.is_custom === "boolean"
+          ? eff.is_custom
+          : shapedUser.is_custom,
+      packages: Array.isArray(eff?.packages)
+        ? eff.packages
+        : shapedUser.packages,
+    };
+
+    return {
+      ...shapedUser,
+      ...pkgFields,
+      featuresList,
+      featuresMap,
+      permissions,
+    };
   } catch {
     return {
       ...shapedUser,

@@ -1,20 +1,13 @@
 // src/utils/periodUtil.js
 "use strict";
 
-const PERIOD = {
-  DAY: "day",
-  WEEK: "week",
-  MONTH: "month",
-  YEAR: "year",
-};
+const PERIOD = { DAY: "day", WEEK: "week", MONTH: "month", YEAR: "year" };
 
 function normalizePeriod(p) {
   const s = String(p || "").toLowerCase();
-  if (s === "year" || s === "yearly" || s === "annual" || s === "annually") {
-    return PERIOD.YEAR;
-  }
-  if (s === "month" || s === "monthly") return PERIOD.MONTH;
-  if (s === "week" || s === "weekly") return PERIOD.WEEK;
+  if (["year", "yearly", "annual", "annually"].includes(s)) return PERIOD.YEAR;
+  if (["month", "monthly"].includes(s)) return PERIOD.MONTH;
+  if (["week", "weekly"].includes(s)) return PERIOD.WEEK;
   return PERIOD.DAY;
 }
 
@@ -27,7 +20,6 @@ function periodKey(period, when = new Date()) {
         d.getUTCDate()
       )}`;
     case "WEEK": {
-      // ISO week
       const date = new Date(
         Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())
       );

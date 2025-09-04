@@ -10,14 +10,14 @@ const requirePermission = require("../middleware/requirePermission");
 router.get(
   "/user-messages",
   authMiddleware,
-  requirePermission("analytics.view"),
+  requirePermission("reports.view"),
   historyController.getUserMessages
 );
 
 router.get(
   "/user-history",
   authMiddleware,
-  requirePermission("analytics.view"),
+  requirePermission("reports.view"),
   historyController.getHistoryBetweenDates
 );
 

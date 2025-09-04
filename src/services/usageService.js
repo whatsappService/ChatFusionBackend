@@ -127,7 +127,7 @@ async function increment({
   };
 
   await doBump(user_id); // per-user
-  await doBump(null); // business aggregate
+  await doBump(null);    // business aggregate
 
   return { key, amount: amt };
 }

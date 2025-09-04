@@ -1,6 +1,6 @@
 "use strict";
 
-const { Op, fn, col, where, literal } = require("sequelize");
+const { Op, fn, col } = require("sequelize");
 const {
   User,
   Business,
@@ -9,7 +9,12 @@ const {
   BusinessPackagePermission,
   UserPermission,
   UserFeature,
+  Feature,
 } = require("../models/associations");
+const sequelize = require("../config/database");
+const BusinessPackageService = require("./BusinessPackageService");
+// ✅ import cap+usage helpers
+const { resolveUsageCap, getUsage } = require("./usageService");
 
 /* -------------------- helpers -------------------- */
 
@@ -87,22 +92,35 @@ const CANONICAL_PERMS = [
 
 /** Expand '*' into concrete permissions (db + canonical), de-duped & sorted */
 async function expandWildcardPermissions(perms) {
-  const arr = Array.isArray(perms) ? perms : [];
-  if (!arr.includes("*")) return arr;
+  const list = Array.isArray(perms) ? perms : [];
+  const hasWildcard = list.includes("*");
+
+  // Always drop "*" from the returned set
+  const base = list.filter((p) => p !== "*");
+  if (!hasWildcard) return base;
 
   const rows = await BusinessPackagePermission.findAll({
     attributes: [[fn("DISTINCT", col("perm")), "perm"]],
     raw: true,
   });
-  const fromDb = rows.map((r) => r.perm).filter(Boolean);
+  const fromDb = rows.map((r) => r.perm).filter((p) => p && p !== "*");
 
   const expanded = Array.from(new Set([...fromDb, ...CANONICAL_PERMS]));
   expanded.sort();
   return expanded;
 }
 
-/** Enrich user with features/permissions; lazy-require to avoid circulars */
-async function shapeUserWithAccess(businessId, userId, u) {
+/**
+ * Enrich user with features/permissions; lazy-require to avoid circulars
+ * @param {number} businessId
+ * @param {number} userId
+ * @param {object} u - user row or shaped object
+ * @param {object} opts
+ * @param {boolean} opts.includeCaps - attach usage_cap {period, cap} to featuresList
+ * @param {boolean} opts.includeUsage - if true, also attach {used, remaining, cap, period, period_key} for each capped feature
+ */
+async function shapeUserWithAccess(businessId, userId, u, opts = {}) {
+  const { includeCaps = false, includeUsage = false, when = new Date() } = opts;
   const businessNameField = getBusinessNameField();
   const shaped = shapeUserBasic(u, businessNameField);
 
@@ -113,11 +131,46 @@ async function shapeUserWithAccess(businessId, userId, u) {
       Number(businessId),
       Number(userId)
     );
-    const featuresList = Array.isArray(eff?.featuresList)
-      ? eff.featuresList
-      : [];
+
+    let featuresList = Array.isArray(eff?.featuresList) ? eff.featuresList : [];
+    const featuresMap = eff?.featuresMap || {};
     const roles = Array.isArray(eff?.roles) ? eff.roles : shaped.roles || [];
     const permissions = await expandWildcardPermissions(eff?.permissions || []);
+
+    // Optionally enrich features with caps (and usage)
+    if (includeCaps) {
+      const detailed = [];
+      for (const f of featuresList) {
+        const meta = featuresMap[f.code]?.meta_json ?? f.meta_json ?? null;
+        const capNode = resolveUsageCap(meta); // { period, cap } | null
+        let usage = undefined;
+
+        if (includeUsage && capNode) {
+          const { key, used } = await getUsage({
+            business_id: Number(businessId),
+            user_id: Number(userId),
+            feature_code: f.code,
+            feature_name: f.name,
+            period: capNode.period,
+            when,
+          });
+          usage = {
+            period: capNode.period,
+            period_key: key,
+            used: Number(used || 0),
+            cap: capNode.cap,
+            remaining: Math.max(0, capNode.cap - Number(used || 0)),
+          };
+        }
+
+        detailed.push({
+          ...f,
+          usage_cap: capNode || null,
+          ...(usage ? { usage } : {}),
+        });
+      }
+      featuresList = detailed;
+    }
 
     return {
       ...shaped,
@@ -261,7 +314,6 @@ async function computePackageFieldsSingle(businessId, user) {
       user_id: uid,
       [Op.or]: [
         { enabled: { [Op.ne]: null } },
-
         { meta_json: { [Op.ne]: null } },
       ],
     },
@@ -451,8 +503,11 @@ exports.getUserForBusiness = async function getUserForBusiness(
 
     if (!user) return null;
 
-    // access (features/permissions) first
-    const withAccess = await shapeUserWithAccess(businessId, userId, user);
+    // ✅ access (features/permissions) with caps+usage
+    const withAccess = await shapeUserWithAccess(businessId, userId, user, {
+      includeCaps: true,
+      includeUsage: true,
+    });
 
     // package fields for this user
     const pkgFields = await computePackageFieldsSingle(
@@ -487,7 +542,12 @@ exports.getUserForBusiness = async function getUserForBusiness(
       business_name,
     };
 
-    const withAccess = await shapeUserWithAccess(businessId, userId, shaped);
+    // ✅ include caps+usage here as well
+    const withAccess = await shapeUserWithAccess(businessId, userId, shaped, {
+      includeCaps: true,
+      includeUsage: true,
+    });
+
     const pkgFields = await computePackageFieldsSingle(
       Number(businessId),
       withAccess
@@ -516,6 +576,22 @@ exports.updateUserForBusiness = async function updateUserForBusiness(
     "settings",
     "default_package_id", // allow changing default package selection
   ]);
+    // If the client asked to change the user's package, switch it *properly*:
+  const requestedPkgIdRaw =
+    patch.package_id ?? patch.packageId ?? patch.default_package_id;
+  if (requestedPkgIdRaw != null && requestedPkgIdRaw !== "") {
+    const pid = Number(requestedPkgIdRaw);
+    await BusinessPackageService.setUserPackage(
+      Number(businessId),
+      Number(userId),
+      pid,
+      { exclusive: true, clearOverrides: true, setDefault: true }
+    );
+    // Prevent double-updating the field below (setUserPackage already set it)
+    delete patch.package_id;
+    delete patch.packageId;
+    delete patch.default_package_id;
+  }
 
   const updates = {};
   for (const [k, v] of Object.entries(patch || {})) {
@@ -565,11 +641,112 @@ exports.updateUserForBusiness = async function updateUserForBusiness(
     } catch {}
   }
 
-  const withAccess = await shapeUserWithAccess(businessId, userId, shaped);
+  // ✅ return caps+usage post-update as well
+  const withAccess = await shapeUserWithAccess(businessId, userId, shaped, {
+    includeCaps: true,
+    includeUsage: true,
+  });
   const pkgFields = await computePackageFieldsSingle(
     Number(businessId),
     withAccess
   );
 
   return { ...withAccess, ...pkgFields };
+};
+/**
+ * Update a user's access overrides:
+ * - Features: upsert per feature (enabled + meta_json). We persist even enabled=false to override package.
+ * - Permissions: replace all ALLOW rows with the provided list; keep DENY rows intact.
+ */
+exports.updateUserAccess = async function updateUserAccess(
+  businessId,
+  userId,
+  { features = [], permissions = [] } = {}
+) {
+  const bId = Number(businessId);
+  const uId = Number(userId);
+
+  const user = await User.findOne({
+    where: { id: uId, business_id: bId },
+    attributes: ["id", "business_id"],
+  });
+  if (!user) {
+    const e = new Error("User not found in this business");
+    e.status = 404;
+    throw e;
+  }
+
+  return sequelize.transaction(async (t) => {
+    /* ---------- map feature code -> id for incoming payload ---------- */
+    const codes = Array.from(
+      new Set(
+        (features || [])
+          .map((f) => (f && typeof f.code === "string" ? f.code.trim() : ""))
+          .filter(Boolean)
+      )
+    );
+
+    const codeToId = {};
+    if (codes.length && Feature) {
+      const rows = await Feature.findAll({
+        where: { code: { [Op.in]: codes } },
+        attributes: ["id", "code"],
+        transaction: t,
+        raw: true,
+      });
+      rows.forEach((r) => (codeToId[r.code] = r.id));
+    }
+
+    /* ---------- replace overrides for the provided features ---------- */
+    const featureIds = Object.values(codeToId);
+    if (featureIds.length) {
+      await UserFeature.destroy({
+        where: { user_id: uId, feature_id: { [Op.in]: featureIds } },
+        transaction: t,
+      });
+
+      const rows = features
+        .map((f) => {
+          const fid = codeToId[f.code];
+          if (!fid) return null;
+          const enabled = !!f.enabled;
+          const meta_json =
+            f.meta_json && typeof f.meta_json === "object" ? f.meta_json : null;
+          return {
+            user_id: uId,
+            feature_id: fid,
+            enabled,
+            meta_json,
+          };
+        })
+        .filter(Boolean);
+
+      if (rows.length) {
+        await UserFeature.bulkCreate(rows, { transaction: t });
+      }
+    }
+
+    /* ---------- replace ALLOW permissions with the provided list ---------- */
+    await UserPermission.destroy({
+      where: { user_id: uId, effect: "ALLOW" },
+      transaction: t,
+    });
+
+    const cleanPerms = Array.from(
+      new Set(
+        (permissions || [])
+          .map((p) => (typeof p === "string" ? p.trim() : ""))
+          .filter(Boolean)
+      )
+    );
+
+    if (cleanPerms.length) {
+      const permRows = cleanPerms.map((perm) => ({
+        user_id: uId,
+        perm,
+        effect: "ALLOW",
+      }));
+      await UserPermission.bulkCreate(permRows, { transaction: t });
+    }
+  });
 };

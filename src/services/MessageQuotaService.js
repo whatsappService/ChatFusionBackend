@@ -5,6 +5,7 @@ const { Transaction, fn, col, Op } = require("sequelize");
 const sequelize = require("../config/database");
 const MODELS = require("../models/associations");
 const { PERIOD, periodKey } = require("../utils/periodUtil");
+const BPS = require("./BusinessPackageService");
 
 const {
   UsageCounter,
@@ -103,7 +104,6 @@ async function getBusinessCap(businessId, featureCode) {
 
 /** Per-user cap via effective access (User overrides win; already merged by your service). */
 async function getUserCap(businessId, userId, featureCode) {
-  const BPS = require("./BusinessPackageService");
   const eff = await BPS.getEffectiveAccessForUser(
     Number(businessId),
     Number(userId)

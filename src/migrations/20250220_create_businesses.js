@@ -14,9 +14,9 @@ module.exports = {
       is_deleted: { type: Sequelize.BOOLEAN, defaultValue: false },
       category_id: {
         type: Sequelize.INTEGER,
-        allowNull: false,
+        allowNull: true,
         references: { model: "BusinessCategories", key: "id" },
-        onDelete: "CASCADE",
+        onDelete: "SET NULL",
       },
       createdAt: {
         type: Sequelize.DATE,

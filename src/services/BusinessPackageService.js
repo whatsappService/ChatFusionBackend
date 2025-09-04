@@ -1,11 +1,9 @@
-// src/services/BusinessPackageService.js
 "use strict";
 
 const { Op, fn, col } = require("sequelize");
 const sequelize = require("../config/database");
 const MODELS = require("../models/associations");
 
-// Destructure with fallback to undefined (we guard gracefully below)
 const {
   User,
   Feature,
@@ -44,12 +42,13 @@ const _featureCodeToIdMap = async (t) => {
 const _mergeFeatureRule = (current, rule) => {
   const next = current
     ? { ...current }
-    : { enabled: false, meta_json: null, source: "package" };
+    : { enabled: false, meta_json: null, source: "package", name: null };
 
   next.enabled = !!(next.enabled || rule.enabled);
   if (next.meta_json == null && rule.meta_json != null)
     next.meta_json = rule.meta_json;
-  if (rule.source) next.source = rule.source; // preserve highest-precedence writer
+  if (!next.name && rule.name) next.name = rule.name;
+  if (rule.source) next.source = rule.source;
   return next;
 };
 
@@ -68,13 +67,24 @@ const CANONICAL_PERMS = [
   "reports.view",
 ];
 
-async function _getAllSystemPermissions() {
-  if (!BusinessPackagePermission) return [...CANONICAL_PERMS];
+async function _getAllSystemPermissions(businessId) {
+  if (!BusinessPackagePermission || !BusinessPackage)
+    return [...CANONICAL_PERMS];
+  if (!businessId) return [...CANONICAL_PERMS];
+
   const rows = await BusinessPackagePermission.findAll({
+    include: [
+      {
+        model: BusinessPackage,
+        as: "pkg",
+        where: { business_id: businessId },
+        attributes: [],
+      },
+    ],
     attributes: [[fn("DISTINCT", col("perm")), "perm"]],
     raw: true,
   });
-  const fromDb = rows.map((r) => r.perm).filter(Boolean);
+  const fromDb = rows.map((r) => r.perm).filter((p) => p && p !== "*");
   return Array.from(new Set([...fromDb, ...CANONICAL_PERMS]));
 }
 
@@ -94,14 +104,44 @@ function _expandWithWildcards(perms, universe) {
     if (p === "*") {
       universe.forEach((u) => out.add(u));
     } else if (p.endsWith(".*")) {
-      const pfx = p.slice(0, -2);
       universe.forEach((u) => _matchesPattern(u, p) && out.add(u));
-      out.add(pfx);
+      out.add(p.slice(0, -2));
     } else {
       out.add(p);
     }
   }
   return out;
+}
+
+/** Decide package_name/is_custom summary */
+function _decidePackageFields({
+  assignedPkgs = [], // [{id, name}]
+  defaultPackageId = null,
+  hasPermOverrides = false,
+  hasFeatureOverrides = false,
+}) {
+  const multiple = assignedPkgs.length > 1;
+  const none = assignedPkgs.length === 0;
+
+  let chosen = null;
+  if (defaultPackageId) {
+    chosen =
+      assignedPkgs.find((p) => Number(p.id) === Number(defaultPackageId)) ||
+      null;
+  }
+  if (!chosen && assignedPkgs.length === 1) chosen = assignedPkgs[0];
+
+  const is_custom = none || multiple || hasPermOverrides || hasFeatureOverrides;
+  const pkgNameFromChosen =
+    chosen?.name || chosen?.title || chosen?.display_name || null;
+
+  const package_name = is_custom ? "Custom" : pkgNameFromChosen || "Custom";
+
+  return {
+    package: { id: chosen?.id ?? null, name: package_name, is_custom },
+    package_name,
+    is_custom,
+  };
 }
 
 /* ---------------------------------- CRUD ---------------------------------- */
@@ -183,7 +223,7 @@ exports.createPackage = async (businessId, data) => {
       { transaction: t }
     );
 
-    // features (no limit_value anymore)
+    // features
     if (Array.isArray(data?.features) && data.features.length) {
       const map = await _featureCodeToIdMap(t);
       const rows = data.features
@@ -248,7 +288,7 @@ exports.updatePackage = async (businessId, packageId, data) => {
       await pkg.update(patch, { transaction: t });
     }
 
-    // replace feature rules (no limit_value)
+    // replace feature rules
     if (Array.isArray(data?.features)) {
       await BusinessPackageFeature.destroy({
         where: { package_id: pkg.id },
@@ -371,22 +411,109 @@ exports.removePackageFromUser = async (businessId, userId, packageId) => {
   });
 };
 
+/** Exclusive switch + clear overrides so user is NOT "Custom" */
+exports.setUserPackage = async (
+  businessId,
+  userId,
+  packageId,
+  { exclusive = true, clearOverrides = true, setDefault = true } = {}
+) => {
+  needModel("User", User);
+  needModel("BusinessPackage", BusinessPackage);
+  needModel("BusinessUserPackage", BusinessUserPackage);
+  needModel("UserFeature", UserFeature);
+  needModel("UserPermission", UserPermission);
+
+  return sequelize.transaction(async (t) => {
+    const [user, pkg] = await Promise.all([
+      User.findOne({
+        where: { id: userId, business_id: businessId },
+        transaction: t,
+      }),
+      BusinessPackage.findOne({
+        where: { id: packageId, business_id: businessId, is_active: true },
+        transaction: t,
+      }),
+    ]);
+    if (!user) throw new Error("User not found in this business");
+    if (!pkg) throw new Error("Package not found in this business");
+
+    if (exclusive) {
+      await BusinessUserPackage.destroy({
+        where: { user_id: userId },
+        transaction: t,
+      });
+    }
+
+    await BusinessUserPackage.findOrCreate({
+      where: { user_id: userId, package_id: packageId },
+      defaults: { user_id: userId, package_id: packageId },
+      transaction: t,
+    });
+
+    if (setDefault) {
+      await user.update({ default_package_id: packageId }, { transaction: t });
+    }
+
+    if (clearOverrides) {
+      await UserFeature.destroy({ where: { user_id: userId }, transaction: t });
+      await UserPermission.destroy({
+        where: { user_id: userId },
+        transaction: t,
+      });
+    }
+
+    return { message: "User switched to package", package_id: packageId };
+  });
+};
+
+/** List all packages assigned to a user (in this business) */
+exports.listUserAssignments = async (businessId, userId) => {
+  needModel("BusinessUserPackage", BusinessUserPackage);
+  needModel("BusinessPackage", BusinessPackage);
+  const rows = await BusinessUserPackage.findAll({
+    where: { user_id: Number(userId) },
+    include: [
+      {
+        model: BusinessPackage,
+        as: "pkg",
+        where: { business_id: Number(businessId) },
+        required: true,
+        attributes: ["id", "name"],
+      },
+    ],
+    attributes: [],
+    raw: true,
+  });
+  return rows.map((r) => ({ id: r["pkg.id"], name: r["pkg.name"] }));
+};
+
+/** List all users assigned to a package (in this business) */
+exports.listPackageAssignments = async (businessId, packageId) => {
+  needModel("BusinessUserPackage", BusinessUserPackage);
+  needModel("User", User);
+  const rows = await BusinessUserPackage.findAll({
+    where: { package_id: Number(packageId) },
+    include: [
+      {
+        model: User,
+        where: { business_id: Number(businessId) },
+        required: true,
+        attributes: ["id", "full_name", "email_address"],
+      },
+    ],
+    attributes: [],
+    raw: true,
+  });
+  return rows.map((r) => ({
+    id: r["User.id"],
+    full_name: r["User.full_name"],
+    email_address: r["User.email_address"],
+  }));
+};
+
 /* ----------------------------- effective access ---------------------------- */
-/**
- * Business acts as an ALLOW-LIST:
- * - A user feature is granted only if BusinessFeature(enabled) contains that code.
- * - We return only user-owned access (no raw business toggles).
- * - Features come from packages and user overrides; user overrides win.
- * - Permissions = (package perms ∪ user ALLOW) − user DENY (wildcards supported).
- *
- * Returns:
- * {
- *   featuresList: [{ code, enabled: true, meta_json, source: "package"|"user" }],
- *   featuresMap:  { [code]: { enabled: true, meta_json, source } },
- *   permissions:  string[],
- *   roles: [] // kept for compatibility
- * }
- */
+
 exports.getEffectiveAccessForUser = async (businessId, userId) => {
   needModel("User", User);
 
@@ -394,16 +521,26 @@ exports.getEffectiveAccessForUser = async (businessId, userId) => {
   const uId = Number(userId);
   if (!bId || !uId) throw new Error("Missing businessId/userId");
 
-  // Ensure the user is in the business
+  // Ensure the user is in the business (grab default_package_id too)
   const user = await User.findOne({
     where: { id: uId, business_id: bId },
-    attributes: ["id", "business_id", "is_active"],
+    attributes: ["id", "business_id", "is_active", "default_package_id"],
   });
-  if (!user)
-    return { featuresList: [], featuresMap: {}, permissions: [], roles: [] };
 
-  // ---- 1) BUSINESS allow-list (which feature codes are allowed at all) ----
-  let bizAllowed = null; // null => allow all (if no BusinessFeature wired)
+  if (!user)
+    return {
+      featuresList: [],
+      featuresMap: {},
+      permissions: [],
+      roles: [],
+      packages: [],
+      package: { id: null, name: "Custom", is_custom: true },
+      package_name: "Custom",
+      is_custom: true,
+    };
+
+  // ---- 1) BUSINESS allow-list ----
+  let bizAllowed = null;
   if (BusinessFeature && Feature) {
     const bfRows = await BusinessFeature.findAll({
       where: { business_id: bId, enabled: true },
@@ -411,14 +548,13 @@ exports.getEffectiveAccessForUser = async (businessId, userId) => {
     });
     bizAllowed = new Set(bfRows.map((r) => r?.feature?.code).filter(Boolean));
   } else if (Feature) {
-    // If BusinessFeature isn't wired, default to all known features
     const rows = await Feature.findAll({ attributes: ["code"], raw: true });
     bizAllowed = new Set(rows.map((r) => r.code).filter(Boolean));
   }
 
   const isAllowed = (code) => {
     if (!code) return false;
-    if (bizAllowed == null) return true; // permissive if we can't compute allow-list
+    if (bizAllowed == null) return true;
     return bizAllowed.has(code);
   };
 
@@ -433,7 +569,7 @@ exports.getEffectiveAccessForUser = async (businessId, userId) => {
           as: "pkg",
           where: { business_id: bId, is_active: true },
           required: true,
-          attributes: ["id"],
+          attributes: ["id", "name"],
         },
       ],
       attributes: ["package_id"],
@@ -444,53 +580,68 @@ exports.getEffectiveAccessForUser = async (businessId, userId) => {
     );
   }
 
-  // ---- 3) Build user-owned features (start empty; add only what user gets) ----
-  const base = {}; // code -> { enabled, meta_json, source }
+  const assignedPkgs = activePkgIds.length
+    ? await BusinessPackage.findAll({
+        where: { id: { [Op.in]: activePkgIds }, business_id: bId },
+        attributes: ["id", "name"],
+        raw: true,
+      })
+    : [];
 
-  // From PACKAGE rules (only if business allows)
+  // ---- 3) Build user-owned features ----
+  const base = {};
+
   if (activePkgIds.length && BusinessPackageFeature && Feature) {
     const ruleRows = await BusinessPackageFeature.findAll({
       where: { package_id: { [Op.in]: activePkgIds } },
-      include: [{ model: Feature, as: "feature", attributes: ["code"] }],
+      include: [
+        { model: Feature, as: "feature", attributes: ["code", "name"] },
+      ],
       attributes: ["enabled", "meta_json"],
     });
 
     for (const r of ruleRows) {
       const code = r?.feature?.code;
+      const name = r?.feature?.name || code;
       if (!isAllowed(code)) continue;
       base[code] = _mergeFeatureRule(base[code], {
         enabled: !!r.enabled,
         meta_json: r.meta_json,
         source: "package",
+        name,
       });
     }
   }
 
-  // Apply USER overrides (highest precedence; still gated by business)
   if (UserFeature && Feature) {
     const ufRows = await UserFeature.findAll({
       where: { user_id: uId },
-      include: [{ model: Feature, as: "feature", attributes: ["code"] }],
+      include: [
+        { model: Feature, as: "feature", attributes: ["code", "name"] },
+      ],
       attributes: ["enabled", "meta_json"],
     });
 
     for (const r of ufRows) {
       const code = r?.feature?.code;
+      const fname = r?.feature?.name || code;
       if (!isAllowed(code)) continue;
       const cur = base[code] || {
         enabled: false,
         meta_json: null,
         source: "package",
+        name: fname,
       };
       base[code] = {
         enabled: r.enabled != null ? !!r.enabled : !!cur.enabled,
         meta_json: r.meta_json != null ? r.meta_json : cur.meta_json,
         source: "user",
+        name: cur.name || fname,
       };
     }
   }
 
-  // ---- 4) Permissions = packages ⊕ user ALLOW − user DENY (wildcards supported) ----
+  // ---- 4) Permissions = packages ⊕ user ALLOW − user DENY ----
   const pkgPerms = new Set();
   if (activePkgIds.length && BusinessPackagePermission) {
     const permRows = await BusinessPackagePermission.findAll({
@@ -514,7 +665,7 @@ exports.getEffectiveAccessForUser = async (businessId, userId) => {
     .map((r) => r.perm);
   const denyList = upRows.filter((r) => r.effect === "DENY").map((r) => r.perm);
 
-  const universe = await _getAllSystemPermissions();
+  const universe = await _getAllSystemPermissions(bId);
   const expandedAllow = _expandWithWildcards(
     [...pkgPerms, ...allowList],
     universe
@@ -531,12 +682,40 @@ exports.getEffectiveAccessForUser = async (businessId, userId) => {
     }
   }
 
-  // ---- 5) Return only what the user actually HAS (enabled + gated) ----
+  // ---- 5) Compute package summary (name/is_custom) ----
+  const hasPermOverrides = !!upRows.length;
+  let hasFeatureOverrides = false;
+  if (UserFeature) {
+    const count = await UserFeature.count({
+      where: {
+        user_id: uId,
+        [Op.or]: [
+          { enabled: { [Op.ne]: null } },
+          { meta_json: { [Op.ne]: null } },
+        ],
+      },
+    });
+    hasFeatureOverrides = count > 0;
+  }
+
+  const {
+    package: pkgSummary,
+    package_name,
+    is_custom,
+  } = _decidePackageFields({
+    assignedPkgs: assignedPkgs.map((p) => ({ id: p.id, name: p.name })),
+    defaultPackageId: user.default_package_id ?? null,
+    hasPermOverrides,
+    hasFeatureOverrides,
+  });
+
+  // ---- 6) Return only what the user actually HAS (enabled + gated) ----
   const featuresList = Object.entries(base)
     .filter(([, v]) => !!v.enabled)
     .map(([code, v]) => ({
       code,
       enabled: true,
+      name: v.name,
       meta_json: v.meta_json ?? null,
       source: v.source === "user" ? "user" : "package",
     }))
@@ -545,18 +724,31 @@ exports.getEffectiveAccessForUser = async (businessId, userId) => {
   const featuresMap = Object.fromEntries(
     featuresList.map((f) => [
       f.code,
-      {
-        enabled: true,
-        meta_json: f.meta_json,
-        source: f.source,
-      },
+      { enabled: true, name: f.name, meta_json: f.meta_json, source: f.source },
     ])
   );
 
   const permissions = Array.from(expandedAllow).sort();
 
-  return { featuresList, featuresMap, permissions, roles: [] };
+  return {
+    featuresList,
+    featuresMap,
+    permissions,
+    roles: [],
+    packages: assignedPkgs.map((p) => ({ id: p.id, name: p.name })),
+    package: pkgSummary,
+    package_name,
+    is_custom,
+  };
 };
 
-// Backward-compat alias
+// Backward-compat alias used by other code
 exports.effectiveAccessForUser = exports.getEffectiveAccessForUser;
+
+/* --------- method name aliases expected by your controller/routes ---------- */
+exports.listPackages = exports.getAllPackages;
+exports.getPackage = exports.getPackageById;
+exports.assignUserPackage = (bId, uId, pId) =>
+  exports.assignPackageToUser(bId, uId, pId);
+exports.unassignUserPackage = (bId, uId, pId) =>
+  exports.removePackageFromUser(bId, uId, pId);

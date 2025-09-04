@@ -4,7 +4,7 @@
 const bcrypt = require("bcryptjs");
 
 module.exports = {
-  up: async (queryInterface, Sequelize) => {
+  up: async (queryInterface) => {
     const qi = queryInterface;
     const sequelize = qi.sequelize;
     const t = await sequelize.transaction();
@@ -111,13 +111,11 @@ module.exports = {
         return rows[0];
       };
 
-      // NO limit_value ANYWHERE from here down 👇
-
       const upsertPackageFeature = async ({
         package_id,
         feature_id,
         enabled,
-        meta_json = null, // caps can live in meta_json (optional)
+        meta_json = null,
       }) => {
         await sequelize.query(
           `INSERT INTO \`BusinessPackageFeatures\`
@@ -155,8 +153,8 @@ module.exports = {
       const upsertUserFeature = async ({
         user_id,
         feature_id,
-        enabled = null, // null = inherit
-        meta_json = null, // per-user usage caps etc. as JSON string
+        enabled = null,
+        meta_json = null,
       }) => {
         await sequelize.query(
           `INSERT INTO \`UserFeatures\`
@@ -176,7 +174,7 @@ module.exports = {
       const upsertUserPermission = async ({
         user_id,
         perm,
-        effect = "ALLOW", // or DENY
+        effect = "ALLOW",
       }) => {
         await sequelize.query(
           `INSERT INTO \`UserPermissions\` (user_id, perm, effect, createdAt, updatedAt)
@@ -186,7 +184,11 @@ module.exports = {
         );
       };
 
-      // ---- usage counters helpers ----
+      // tiny util
+      const tryExec = (sql, replacements = []) =>
+        sequelize.query(sql, { replacements, transaction: t }).catch(() => {});
+
+      // usage counters
       const pad2 = (n) => String(n).padStart(2, "0");
       const dayKeyUTC = (d = new Date()) =>
         `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(
@@ -195,7 +197,6 @@ module.exports = {
       const monthKeyUTC = (d = new Date()) =>
         `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}`;
 
-      // Use NULL-safe equality for user_id to be idempotent even with NULL (MySQL)
       const ensureUsageCounter = async ({
         business_id,
         user_id = null,
@@ -229,18 +230,53 @@ module.exports = {
             }
           );
         } else {
-          // touch updatedAt to be nice (optional)
           await sequelize.query(
-            `UPDATE \`UsageCounters\`
-               SET updatedAt = NOW()
-             WHERE id = ?`,
-            {
-              replacements: [rows[0].id],
-              transaction: t,
-            }
+            `UPDATE \`UsageCounters\` SET updatedAt = NOW() WHERE id = ?`,
+            { replacements: [rows[0].id], transaction: t }
           );
         }
       };
+
+      // ---------- DDL: PermissionCatalog + helpful indexes ----------
+      await sequelize.query(
+        `CREATE TABLE IF NOT EXISTS \`PermissionCatalog\` (
+           \`perm\`        VARCHAR(191) NOT NULL,
+           \`feature_id\`  BIGINT UNSIGNED NULL,
+           \`name\`        VARCHAR(255) NULL,
+           \`description\` TEXT NULL,
+           \`createdAt\`   DATETIME NOT NULL,
+           \`updatedAt\`   DATETIME NOT NULL,
+           PRIMARY KEY (\`perm\`),
+           KEY \`pc_feature_id\` (\`feature_id\`),
+           CONSTRAINT \`pc_feature_fk\`
+             FOREIGN KEY (\`feature_id\`) REFERENCES \`Features\`(\`id\`)
+             ON DELETE SET NULL ON UPDATE CASCADE
+         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
+        { transaction: t }
+      );
+
+      // idempotent indexes (ignore if exist)
+      await tryExec(
+        "ALTER TABLE `Features` ADD UNIQUE KEY `u_features_code` (`code`);"
+      );
+      await tryExec(
+        "ALTER TABLE `BusinessFeatures` ADD UNIQUE KEY `u_biz_feat` (`business_id`,`feature_id`);"
+      );
+      await tryExec(
+        "ALTER TABLE `BusinessPackages` ADD UNIQUE KEY `u_bizpkg_name` (`business_id`,`name`);"
+      );
+      await tryExec(
+        "ALTER TABLE `BusinessPackageFeatures` ADD UNIQUE KEY `u_pkg_feat` (`package_id`,`feature_id`);"
+      );
+      await tryExec(
+        "ALTER TABLE `BusinessPackagePermissions` ADD UNIQUE KEY `u_pkg_perm` (`package_id`,`perm`);"
+      );
+      await tryExec(
+        "ALTER TABLE `UserFeatures` ADD UNIQUE KEY `u_user_feat` (`user_id`,`feature_id`);"
+      );
+      await tryExec(
+        "ALTER TABLE `UserPermissions` ADD UNIQUE KEY `u_user_perm` (`user_id`,`perm`);"
+      );
 
       // ---------- 1) categories ----------
       const retail = await insertOrGet({
@@ -292,7 +328,7 @@ module.exports = {
         phone_number: "1234567890",
         password_hash: pwdHash,
         business_id: superBusiness.id,
-        default_package_id: null, // will set after packages
+        default_package_id: null,
       });
 
       const messengerUser = await upsertUserByEmail({
@@ -304,9 +340,9 @@ module.exports = {
         default_package_id: null,
       });
 
-      const crmUser = await upsertUserByEmail({
-        full_name: "CRM User",
-        email_address: "crm@demo.com",
+      const basicUser = await upsertUserByEmail({
+        full_name: "Basic User",
+        email_address: "user@demo.com",
         phone_number: "2222222222",
         password_hash: pwdHash,
         business_id: superBusiness.id,
@@ -328,10 +364,10 @@ module.exports = {
         phone_number: "4444444444",
         password_hash: pwdHash,
         business_id: superBusiness.id,
-        default_package_id: null, // stays null
+        default_package_id: null,
       });
 
-      // ---------- 4) features (added 'users') ----------
+      // ---------- 4) features ----------
       const features = [
         [
           "scheduled_messages",
@@ -345,12 +381,19 @@ module.exports = {
         ],
         ["bulk_send", "Bulk Send", "Send to many recipients with pacing"],
         ["media_attachments", "Media Attachments", "Send images, docs, voice"],
-        ["analytics", "Analytics", "Delivery stats and charts"],
+        ["reports", "Reports", "Delivery stats and charts"],
         ["api_access", "API Access", "Use REST endpoints & tokens"],
         ["webhooks", "Webhooks", "Receive delivery/receipt events"],
-        ["multi_user", "Multi-user", "Multiple logins per business"],
-        ["ai_chatbot", "AI Chatbot", "Bot replies and flows"],
-        ["users", "Users", "Manage users and permissions"], // NEW
+        ["users", "Users", "Manage users and permissions"],
+        ["customers", "Customers", "Manage customer directory & segments"],
+        ["templates", "Templates", "Manage message templates"],
+        ["features", "Feature Flags", "Manage feature toggles and rollout"],
+        [
+          "integrations.whatsapp",
+          "WhatsApp Integration",
+          "WhatsApp integration & auth",
+        ],
+        ["chatbot", "Chatbot", "Chatbot configuration & runtime"],
       ];
       for (const [code, name, description] of features) {
         await sequelize.query(
@@ -369,7 +412,7 @@ module.exports = {
       );
       const fid = (code) => featureMap[code];
 
-      // ---------- 5) business-level feature defaults (enable all; no limits) ----------
+      // ---------- 5) business-level feature defaults ----------
       for (const code of Object.keys(featureMap)) {
         await sequelize.query(
           `INSERT INTO \`BusinessFeatures\`
@@ -381,72 +424,174 @@ module.exports = {
       }
 
       // ---------- 6) packages ----------
-      const ownerPkg = await upsertPackage({
+      const adminPkg = await upsertPackage({
         business_id: superBusiness.id,
-        name: "Owner",
+        name: "Admin",
         description: "Full access to all features and permissions",
       });
-
+      const userPkg = await upsertPackage({
+        business_id: superBusiness.id,
+        name: "User",
+        description: "Standard user with core messaging",
+      });
       const messengerPkg = await upsertPackage({
         business_id: superBusiness.id,
         name: "Messenger",
-        description: "Can send single messages (no bulk)",
+        description: "Can send single and bulk messages only",
       });
-
-      const crmTemplatesPkg = await upsertPackage({
-        business_id: superBusiness.id,
-        name: "CRM+Templates",
-        description:
-          "Manage customers and message templates; limited messaging",
-      });
-
       const reportsPkg = await upsertPackage({
         business_id: superBusiness.id,
         name: "ReportsViewer",
-        description: "View analytics and reports only",
+        description: "View reports only",
       });
 
-      // ---------- 7) granular permission catalog ----------
+      // ---------- 7) permission catalog (explicit map) ----------
       const PERMISSIONS_BY_FEATURE = {
-        single_messages: ["messages.read", "messages.send"],
+        // Messaging
+        single_messages: ["messages.read", "messages.send.single"],
+        bulk_send: ["messages.read", "messages.send.bulk"],
+
+        // Scheduling
         scheduled_messages: [
           "schedules.read",
           "schedules.create",
           "schedules.update",
           "schedules.delete",
         ],
-        bulk_send: ["bulk.read", "bulk.send"],
+
+        // Media
         media_attachments: ["media.upload"],
-        analytics: ["reports.view"],
-        api_access: ["api.manage"],
+
+        // CRM
+        customers: [
+          "customers.read",
+          "customers.create",
+          "customers.update",
+          "customers.delete",
+        ],
+        templates: [
+          "templates.read",
+          "templates.create",
+          "templates.update",
+          "templates.delete",
+        ],
+
+        // Users / Team
+        users: [
+          "users.view",
+          "users.create",
+          "users.update",
+          "users.delete",
+          "users.invite",
+          "multiuser.manage",
+          "team.manage",
+        ],
+
+        // Reports (include legacy analytics aliases)
+        reports: [
+          "reports.view",
+          "reports.export",
+          "analytics.view",
+          "analytics.export",
+        ],
+
+        // Platform & Integrations
         webhooks: ["webhooks.manage"],
-        multi_user: ["multiuser.manage"],
-        ai_chatbot: ["chatbot.manage"],
-        users: ["users.read", "users.write", "users.invite"],
+        api_access: ["api.manage", "integrations.manage"],
+
+        // Feature flags
+        features: ["features.read", "features.write"],
+
+        // Chatbot
+        chatbot: ["chatbot.manage"],
+
+        // WhatsApp integration
+        "integrations.whatsapp": [
+          "whatsapp.manage",
+          "integrations.whatsapp.auth",
+        ],
       };
+
       const ALL_PERMS = Array.from(
         new Set(Object.values(PERMISSIONS_BY_FEATURE).flat())
       );
 
-      const addAllPermsForPackage = async (pkgId) => {
-        for (const p of ALL_PERMS) {
-          await upsertPackagePerm({ package_id: pkgId, perm: p });
-        }
+      const upsertCatalog = async (feature_code, perm) => {
+        const feature_id = fid(feature_code) || null;
+        await sequelize.query(
+          `INSERT INTO \`PermissionCatalog\` (perm, feature_id, name, description, createdAt, updatedAt)
+           VALUES (?, ?, NULL, NULL, NOW(), NOW())
+           ON DUPLICATE KEY UPDATE feature_id=VALUES(feature_id), updatedAt=VALUES(updatedAt)`,
+          { replacements: [perm, feature_id], transaction: t }
+        );
       };
 
-      // ---------- 8) owner: all features + all perms + wildcard ----------
+      for (const [fcode, perms] of Object.entries(PERMISSIONS_BY_FEATURE)) {
+        for (const p of perms) await upsertCatalog(fcode, p);
+      }
+
+      // ---------- 8) Admin: all features + all perms + wildcard ----------
       for (const code of Object.keys(featureMap)) {
         await upsertPackageFeature({
-          package_id: ownerPkg.id,
+          package_id: adminPkg.id,
           feature_id: fid(code),
           enabled: true,
-          meta_json: null, // no caps at package level
+          meta_json: null,
         });
       }
-      await addAllPermsForPackage(ownerPkg.id);
-      await upsertPackagePerm({ package_id: ownerPkg.id, perm: "*" });
+      for (const p of ALL_PERMS) {
+        await upsertPackagePerm({ package_id: adminPkg.id, perm: p });
+      }
+      await upsertPackagePerm({ package_id: adminPkg.id, perm: "*" });
 
-      // ---------- 9) messenger: messages + media (no bulk/schedules) ----------
+      // ---------- 9) User: single + media + customers/templates (read) ----------
+      await upsertPackageFeature({
+        package_id: userPkg.id,
+        feature_id: fid("single_messages"),
+        enabled: true,
+      });
+      await upsertPackageFeature({
+        package_id: userPkg.id,
+        feature_id: fid("media_attachments"),
+        enabled: true,
+      });
+      await upsertPackageFeature({
+        package_id: userPkg.id,
+        feature_id: fid("customers"),
+        enabled: true,
+      });
+      await upsertPackageFeature({
+        package_id: userPkg.id,
+        feature_id: fid("templates"),
+        enabled: true,
+      });
+      await upsertPackageFeature({
+        package_id: userPkg.id,
+        feature_id: fid("bulk_send"),
+        enabled: false,
+      });
+      await upsertPackageFeature({
+        package_id: userPkg.id,
+        feature_id: fid("scheduled_messages"),
+        enabled: false,
+      });
+      await upsertPackageFeature({
+        package_id: userPkg.id,
+        feature_id: fid("reports"),
+        enabled: false,
+      });
+
+      for (const p of [
+        "messages.read",
+        "messages.send.single",
+        "media.upload",
+        "customers.read",
+        "templates.read",
+      ]) {
+        await upsertPackagePerm({ package_id: userPkg.id, perm: p });
+      }
+
+      // ---------- 10) Messenger: single + bulk + customers.read ----------
       await upsertPackageFeature({
         package_id: messengerPkg.id,
         feature_id: fid("single_messages"),
@@ -454,43 +599,48 @@ module.exports = {
       });
       await upsertPackageFeature({
         package_id: messengerPkg.id,
-        feature_id: fid("media_attachments"),
+        feature_id: fid("bulk_send"),
         enabled: true,
       });
       await upsertPackageFeature({
         package_id: messengerPkg.id,
-        feature_id: fid("bulk_send"),
-        enabled: false,
+        feature_id: fid("customers"),
+        enabled: true,
       });
       await upsertPackageFeature({
         package_id: messengerPkg.id,
         feature_id: fid("scheduled_messages"),
         enabled: false,
       });
+      await upsertPackageFeature({
+        package_id: messengerPkg.id,
+        feature_id: fid("media_attachments"),
+        enabled: false,
+      });
+      await upsertPackageFeature({
+        package_id: messengerPkg.id,
+        feature_id: fid("reports"),
+        enabled: false,
+      });
+      await upsertPackageFeature({
+        package_id: messengerPkg.id,
+        feature_id: fid("templates"),
+        enabled: false,
+      });
 
-      for (const p of ["messages.read", "messages.send", "media.upload"]) {
+      for (const p of [
+        "messages.read",
+        "messages.send.single",
+        "messages.send.bulk",
+        "customers.read",
+      ]) {
         await upsertPackagePerm({ package_id: messengerPkg.id, perm: p });
       }
 
-      // ---------- 10) crm+templates: CRUD perms, messaging disabled ----------
-      await upsertPackageFeature({
-        package_id: crmTemplatesPkg.id,
-        feature_id: fid("single_messages"),
-        enabled: false,
-      });
-      for (const p of [
-        "customers.read",
-        "customers.write",
-        "templates.read",
-        "templates.write",
-      ]) {
-        await upsertPackagePerm({ package_id: crmTemplatesPkg.id, perm: p });
-      }
-
-      // ---------- 11) reports viewer: analytics only ----------
+      // ---------- 11) Reports viewer ----------
       await upsertPackageFeature({
         package_id: reportsPkg.id,
-        feature_id: fid("analytics"),
+        feature_id: fid("reports"),
         enabled: true,
       });
       await upsertPackagePerm({
@@ -498,28 +648,47 @@ module.exports = {
         perm: "reports.view",
       });
 
-      // ---------- 12) assign packages to users + set default_package_id ----------
+      // ---------- 12) assign packages + set default (and clean extras) ----------
       await upsertUserPackage({
         user_id: superAdmin.id,
-        package_id: ownerPkg.id,
+        package_id: adminPkg.id,
       });
       await upsertUserPackage({
         user_id: messengerUser.id,
         package_id: messengerPkg.id,
       });
       await upsertUserPackage({
-        user_id: crmUser.id,
-        package_id: crmTemplatesPkg.id,
+        user_id: basicUser.id,
+        package_id: userPkg.id,
       });
       await upsertUserPackage({
         user_id: reportsUser.id,
         package_id: reportsPkg.id,
       });
 
+      // keep only intended package (avoid "custom" label in UI)
+      await tryExec(
+        "DELETE FROM `BusinessUserPackages` WHERE user_id=? AND package_id <> ?",
+        [superAdmin.id, adminPkg.id]
+      );
+      await tryExec(
+        "DELETE FROM `BusinessUserPackages` WHERE user_id=? AND package_id <> ?",
+        [messengerUser.id, messengerPkg.id]
+      );
+      await tryExec(
+        "DELETE FROM `BusinessUserPackages` WHERE user_id=? AND package_id <> ?",
+        [basicUser.id, userPkg.id]
+      );
+      await tryExec(
+        "DELETE FROM `BusinessUserPackages` WHERE user_id=? AND package_id <> ?",
+        [reportsUser.id, reportsPkg.id]
+      );
+
+      // defaults
       await sequelize.query(
         `UPDATE \`Users\` SET default_package_id=? WHERE id=?`,
         {
-          replacements: [ownerPkg.id, superAdmin.id],
+          replacements: [adminPkg.id, superAdmin.id],
           transaction: t,
         }
       );
@@ -533,7 +702,7 @@ module.exports = {
       await sequelize.query(
         `UPDATE \`Users\` SET default_package_id=? WHERE id=?`,
         {
-          replacements: [crmTemplatesPkg.id, crmUser.id],
+          replacements: [userPkg.id, basicUser.id],
           transaction: t,
         }
       );
@@ -544,22 +713,27 @@ module.exports = {
           transaction: t,
         }
       );
-      // customUser keeps default_package_id = NULL
 
-      // Super admin convenience: wildcard ALLOW at user level
-      await upsertUserPermission({
-        user_id: superAdmin.id,
-        perm: "*",
-        effect: "ALLOW",
-      });
+      // Ensure Super Admin is truly ADMIN (not custom):
+      await tryExec("DELETE FROM `UserFeatures` WHERE user_id = ?", [
+        superAdmin.id,
+      ]);
+      await tryExec("DELETE FROM `UserPermissions` WHERE user_id = ?", [
+        superAdmin.id,
+      ]);
+      await tryExec(
+        "UPDATE `Users` SET roles = JSON_ARRAY('admin') WHERE id = ?",
+        [superAdmin.id]
+      );
+      await tryExec("UPDATE `Users` SET role = 'admin' WHERE id = ?", [
+        superAdmin.id,
+      ]);
 
-      // ---------- 13) custom user (no package): custom features + custom permissions ----------
-      // Enable single messages + media; disable bulk + schedules; enable analytics
+      // ---------- 13) custom user overrides (kept for demo) ----------
       await upsertUserFeature({
         user_id: customUser.id,
         feature_id: fid("single_messages"),
         enabled: true,
-        // give custom user a per-day cap of 50 single messages
         meta_json: JSON.stringify({ usage_cap: { period: "DAY", cap: 50 } }),
       });
       await upsertUserFeature({
@@ -579,20 +753,17 @@ module.exports = {
       });
       await upsertUserFeature({
         user_id: customUser.id,
-        feature_id: fid("analytics"),
+        feature_id: fid("reports"),
         enabled: true,
       });
 
-      // Messenger user inherits enabled=true for single_messages via package,
-      // but we ALSO set a cap here via meta_json without overriding enabled state.
       await upsertUserFeature({
         user_id: messengerUser.id,
         feature_id: fid("single_messages"),
-        enabled: null, // inherit
+        enabled: null,
         meta_json: JSON.stringify({ usage_cap: { period: "DAY", cap: 100 } }),
       });
 
-      // Permissions for custom user: allow read, deny send; allow reports.view and media.upload
       await upsertUserPermission({
         user_id: customUser.id,
         perm: "messages.read",
@@ -600,7 +771,7 @@ module.exports = {
       });
       await upsertUserPermission({
         user_id: customUser.id,
-        perm: "messages.send",
+        perm: "messages.send.single",
         effect: "DENY",
       });
       await upsertUserPermission({
@@ -614,39 +785,22 @@ module.exports = {
         effect: "ALLOW",
       });
 
-      // ---------- 13.5) seed initial usage counters (used = 0) ----------
+      // ---------- 13.5) usage counters ----------
       const today = new Date();
       const periodKeys = [dayKeyUTC(today), monthKeyUTC(today)];
-      // Seed counters for features that we enforce caps/track usage for
       const FEATURE_CODES_TO_INIT = ["single_messages", "bulk_send"];
 
       for (const feature_code of FEATURE_CODES_TO_INIT) {
         for (const pk of periodKeys) {
-          // per-user counters (those with caps or likely to use feature)
-          await ensureUsageCounter({
-            business_id: superBusiness.id,
-            user_id: messengerUser.id,
-            feature_code,
-            period_key: pk,
-            used: 0,
-          });
-          await ensureUsageCounter({
-            business_id: superBusiness.id,
-            user_id: customUser.id,
-            feature_code,
-            period_key: pk,
-            used: 0,
-          });
-          // Optionally seed for superAdmin as well (no caps but usage may show up early)
-          await ensureUsageCounter({
-            business_id: superBusiness.id,
-            user_id: superAdmin.id,
-            feature_code,
-            period_key: pk,
-            used: 0,
-          });
-
-          // business aggregate counter (user_id = NULL)
+          for (const u of [messengerUser, customUser, superAdmin]) {
+            await ensureUsageCounter({
+              business_id: superBusiness.id,
+              user_id: u.id,
+              feature_code,
+              period_key: pk,
+              used: 0,
+            });
+          }
           await ensureUsageCounter({
             business_id: superBusiness.id,
             user_id: null,
@@ -657,7 +811,7 @@ module.exports = {
         }
       }
 
-      // ---------- 14) system templates (user_id = NULL) ----------
+      // ---------- 14) system templates ----------
       const systemTemplates = [
         {
           category_id: retail.id,
@@ -700,7 +854,7 @@ module.exports = {
         );
       }
 
-      // ---------- 15) demo categories & customers for super admin ----------
+      // ---------- 15) demo categories & customers ----------
       for (const name of ["Regular", "VIP", "Wholesale"]) {
         const [exists] = await sequelize.query(
           "SELECT id FROM `CustomerCategories` WHERE user_id = ? AND name = ? LIMIT 1",
@@ -714,12 +868,13 @@ module.exports = {
           );
         }
       }
-      const [catRows] = await sequelize.query(
+      const [customerCategoryRows] = await sequelize.query(
         "SELECT id, name FROM `CustomerCategories` WHERE user_id = ?",
         { replacements: [superAdmin.id], transaction: t }
       );
-      const catMap = Object.fromEntries(catRows.map((r) => [r.name, r.id]));
-
+      const catMap = Object.fromEntries(
+        customerCategoryRows.map((r) => [r.name, r.id])
+      );
       const customers = [
         {
           whatsapp_number: "+1234567890",
@@ -830,6 +985,82 @@ module.exports = {
         );
       }
 
+      // ---------- 17) BACKFILL: map any stray permissions so NONE remain unassigned ----------
+      const guessFeature = (perm) => {
+        const map = [
+          // Messaging
+          [/^messages\.send\.single$/, "single_messages"],
+          [/^messages\.send\.bulk$/, "bulk_send"],
+          [/^messages\.read$/, "single_messages"],
+
+          // Scheduling
+          [/^schedules\./, "scheduled_messages"],
+
+          // Media
+          [/^media\./, "media_attachments"],
+
+          // CRM
+          [/^customers\./, "customers"],
+          [/^templates\./, "templates"],
+
+          // Users
+          [/^users\./, "users"],
+          [/^(team\.manage|multiuser\.manage)$/, "users"],
+
+          // Reports & legacy analytics
+          [/^reports\./, "reports"],
+          [/^analytics\./, "reports"],
+
+          // Platform
+          [/^webhooks\./, "webhooks"],
+          [/^api\./, "api_access"],
+          [/^integrations\.manage$/, "api_access"],
+
+          // Features / Chatbot
+          [/^features\./, "features"],
+          [/^chatbot\./, "chatbot"],
+
+          // WhatsApp
+          [/^whatsapp\.manage$/, "integrations.whatsapp"],
+          [/^integrations\.whatsapp\./, "integrations.whatsapp"],
+        ];
+        for (const [re, f] of map) if (re.test(perm)) return f;
+        // final fallback: route unknowns to api_access so no NULL feature_id remains
+        return "api_access";
+      };
+
+      const [permRows] = await sequelize.query(
+        `SELECT DISTINCT perm FROM \`BusinessPackagePermissions\`
+         UNION
+         SELECT DISTINCT perm FROM \`UserPermissions\``,
+        { transaction: t }
+      );
+      const livePerms = permRows.map((r) => r.perm);
+
+      const [pcRows] = await sequelize.query(
+        `SELECT perm FROM \`PermissionCatalog\``,
+        { transaction: t }
+      );
+      const inCatalog = new Set(pcRows.map((r) => r.perm));
+
+      for (const perm of livePerms) {
+        if (inCatalog.has(perm)) continue;
+        const fcode = guessFeature(perm);
+        await sequelize.query(
+          `INSERT INTO \`PermissionCatalog\` (perm, feature_id, name, description, createdAt, updatedAt)
+           VALUES (?, ?, NULL, NULL, NOW(), NOW())
+           ON DUPLICATE KEY UPDATE feature_id=VALUES(feature_id), updatedAt=VALUES(updatedAt)`,
+          { replacements: [perm, fid(fcode)], transaction: t }
+        );
+      }
+
+      // absolutely no NULL feature_id rows left in catalog
+      await sequelize.query(
+        `UPDATE \`PermissionCatalog\` SET feature_id = ?
+         WHERE feature_id IS NULL`,
+        { replacements: [fid("api_access")], transaction: t }
+      );
+
       await t.commit();
     } catch (err) {
       await t.rollback();
@@ -844,7 +1075,7 @@ module.exports = {
       const emails = [
         "superadmin@superadmin.com",
         "messenger@demo.com",
-        "crm@demo.com",
+        "user@demo.com",
         "reports@demo.com",
         "custom@demo.com",
       ];
@@ -860,13 +1091,11 @@ module.exports = {
         }
       );
 
-      // Remove usage counters for the seeded business
       await sequelize.query(
         "DELETE FROM `UsageCounters` WHERE business_id IN (SELECT id FROM `Businesses` WHERE business_name = ?)",
         { replacements: ["Super Admin Business"], transaction: t }
       );
 
-      // Remove BusinessUserPackages for seeded users
       await sequelize.query(
         `DELETE bup FROM \`BusinessUserPackages\` bup
          JOIN \`Users\` u ON u.id = bup.user_id
@@ -874,7 +1103,6 @@ module.exports = {
         { replacements: emails, transaction: t }
       );
 
-      // Remove user-level permissions & features for seeded users
       await sequelize.query(
         `DELETE up FROM \`UserPermissions\` up
          JOIN \`Users\` u ON u.id = up.user_id
@@ -888,7 +1116,6 @@ module.exports = {
         { replacements: emails, transaction: t }
       );
 
-      // Remove packages & related
       await sequelize.query(
         `DELETE bpf FROM \`BusinessPackageFeatures\` bpf
          JOIN \`BusinessPackages\` bp ON bp.id = bpf.package_id
@@ -906,7 +1133,6 @@ module.exports = {
         { replacements: ["Super Admin Business"], transaction: t }
       );
 
-      // Remove demo customers/categories/templates for super admin
       await sequelize.query(
         "DELETE FROM `Customers` WHERE user_id IN (SELECT id FROM `Users` WHERE email_address = ?)",
         { replacements: ["superadmin@superadmin.com"], transaction: t }
@@ -922,13 +1148,11 @@ module.exports = {
         { replacements: ["superadmin@superadmin.com"], transaction: t }
       );
 
-      // Remove business- and user-features for seeded business
       await sequelize.query(
         "DELETE FROM `BusinessFeatures` WHERE business_id IN (SELECT id FROM `Businesses` WHERE business_name = ?)",
         { replacements: ["Super Admin Business"], transaction: t }
       );
 
-      // Remove users, business, features, categories
       await sequelize.query(
         `DELETE FROM \`Users\` WHERE email_address IN (${emails
           .map(() => "?")
@@ -939,24 +1163,77 @@ module.exports = {
         "DELETE FROM `Businesses` WHERE business_name = ?",
         { replacements: ["Super Admin Business"], transaction: t }
       );
+
+      // remove catalog rows we seeded (keep table)
+      const seededPerms = [
+        "messages.read",
+        "messages.send.single",
+        "messages.send.bulk",
+        "schedules.read",
+        "schedules.create",
+        "schedules.update",
+        "schedules.delete",
+        "media.upload",
+        "customers.read",
+        "customers.create",
+        "customers.update",
+        "customers.delete",
+        "templates.read",
+        "templates.create",
+        "templates.update",
+        "templates.delete",
+        "users.view",
+        "users.create",
+        "users.update",
+        "users.delete",
+        "users.invite",
+        "multiuser.manage",
+        "team.manage",
+        "reports.view",
+        "reports.export",
+        "analytics.view",
+        "analytics.export",
+        "webhooks.manage",
+        "api.manage",
+        "integrations.manage",
+        "features.read",
+        "features.write",
+        "chatbot.manage",
+        "whatsapp.manage",
+        "integrations.whatsapp.auth",
+      ];
+      await sequelize
+        .query(
+          `DELETE FROM \`PermissionCatalog\` WHERE perm IN (${seededPerms
+            .map(() => "?")
+            .join(",")})`,
+          { replacements: seededPerms, transaction: t }
+        )
+        .catch(() => {});
+
+      // delete the current feature set
+      const ALL_FEATURE_CODES = [
+        "scheduled_messages",
+        "single_messages",
+        "bulk_send",
+        "media_attachments",
+        "reports",
+        "api_access",
+        "webhooks",
+        "users",
+        "customers",
+        "templates",
+        "features",
+        "integrations.whatsapp",
+        "chatbot",
+      ];
       await sequelize.query(
-        "DELETE FROM `Features` WHERE code IN (?,?,?,?,?,?,?,?,?,?)",
-        {
-          replacements: [
-            "scheduled_messages",
-            "single_messages",
-            "bulk_send",
-            "media_attachments",
-            "analytics",
-            "api_access",
-            "webhooks",
-            "multi_user",
-            "ai_chatbot",
-            "users",
-          ],
-          transaction: t,
-        }
+        `DELETE FROM \`Features\` WHERE code IN (${ALL_FEATURE_CODES.map(
+          () => "?"
+        ).join(",")})`,
+        { replacements: ALL_FEATURE_CODES, transaction: t }
       );
+
       await sequelize.query(
         "DELETE FROM `BusinessCategories` WHERE category_name IN (?, ?)",
         { replacements: ["Retail", "Tech"], transaction: t }

@@ -48,7 +48,10 @@ const generateTokens = (user, _extrasIgnored = {}) => {
 const verifyToken = (token) => {
   if (!process.env.JWT_SECRET) throw new Error("Missing JWT secret key");
   // If you want to enforce issuer too, add { issuer: ISSUER } below.
-  return jwt.verify(token, process.env.JWT_SECRET, { algorithms: ["HS256"] });
+  return jwt.verify(token, process.env.JWT_SECRET, {
+    algorithms: ["HS256"],
+    issuer: ISSUER,
+  });
 };
 
 const verifyRefreshToken = (refreshToken) => {
@@ -56,6 +59,7 @@ const verifyRefreshToken = (refreshToken) => {
     throw new Error("Missing JWT refresh secret key");
   return jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET, {
     algorithms: ["HS256"],
+    issuer: ISSUER,
   });
 };
 

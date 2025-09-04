@@ -10,6 +10,8 @@ exports.listKeys = async (req, res, next) => {
   }
 };
 
+/*************  ✨ Windsurf Command ⭐  *************/
+/*******  2454a775-7ca8-485c-bc5d-d0c17d02198b  *******/
 exports.createKey = async (req, res, next) => {
   try {
     res.status(201).json(await svc.createKey(req.user.business_id));

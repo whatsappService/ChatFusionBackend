@@ -17,15 +17,23 @@ const {
   UserPermission,
 } = MODELS || {};
 
+/* ------------------------------- HttpError -------------------------------- */
+
+class HttpError extends Error {
+  constructor(message, status = 400) {
+    super(message);
+    this.status = status;
+  }
+}
+
 /* --------------------------------- helpers -------------------------------- */
 
 const needModel = (name, m) => {
   if (!m) {
-    const e = new Error(
-      `Model "${name}" is not exported from ../models/associations. ` +
-        `Please add it to your associations index.`
+    const e = new HttpError(
+      `Model "${name}" is not exported from ../models/associations. Please add it to your associations index.`,
+      500
     );
-    e.status = 500;
     throw e;
   }
 };
@@ -144,6 +152,111 @@ function _decidePackageFields({
   };
 }
 
+/* -------- normalize incoming and shape outgoing package payloads ----------- */
+
+// Accept features from any of: features, featuresList, featureRules
+const _pickIncomingFeaturesArray = (data) => {
+  if (!data || typeof data !== "object") return undefined;
+  if ("features" in data) return data.features;
+  if ("featuresList" in data) return data.featuresList;
+  if ("featureRules" in data) return data.featureRules;
+  return undefined;
+};
+
+// Extract usage_cap from a variety of shapes
+const _parseUsageCapFromMeta = (meta) => {
+  if (!meta) return null;
+  if (typeof meta === "string") {
+    try {
+      const obj = JSON.parse(meta);
+      return obj?.usage_cap ?? null;
+    } catch {
+      return null;
+    }
+  }
+  if (typeof meta === "object") {
+    return meta?.usage_cap ?? null;
+  }
+  return null;
+};
+
+const _normalizeIncomingFeatures = (data) => {
+  const src = _pickIncomingFeaturesArray(data);
+  if (!Array.isArray(src)) return null; // signal "not provided"
+
+  return src
+    .map((f) => {
+      if (!f || typeof f !== "object") return null;
+      const code =
+        f.code ?? f.feature?.code ?? f.feature_code ?? f.id ?? f.name ?? null;
+      if (!code) return null;
+
+      // Prefer explicit meta_json; otherwise, accept {usage_cap} on either f or meta_json
+      let meta_json = null;
+      if (f.meta_json != null) {
+        meta_json = f.meta_json;
+      } else if (f.usage_cap != null) {
+        const period = String(f.usage_cap?.period || "DAY").toUpperCase();
+        const cap = f.usage_cap?.cap != null ? Number(f.usage_cap.cap) : null;
+        if (cap != null && !Number.isNaN(cap)) {
+          meta_json = { usage_cap: { period, cap } };
+        }
+      } else {
+        const uc = _parseUsageCapFromMeta(f.meta_json);
+        if (uc && uc.cap != null) {
+          const period = String(uc.period || "DAY").toUpperCase();
+          const cap = Number(uc.cap);
+          if (!Number.isNaN(cap)) {
+            meta_json = { usage_cap: { period, cap } };
+          }
+        }
+      }
+
+      return {
+        code,
+        enabled: f.enabled != null ? !!f.enabled : true,
+        meta_json: meta_json ?? null,
+      };
+    })
+    .filter(Boolean);
+};
+
+// Shape a package row (with includes) to a plain JSON with friendly fields
+const _shapePackageOutput = (row) => {
+  const j = row?.toJSON ? row.toJSON() : row || {};
+  const featureRules = Array.isArray(j.featureRules) ? j.featureRules : [];
+
+  const features = featureRules
+    .map((r) => ({
+      code: r?.feature?.code,
+      name: r?.feature?.name || r?.feature?.code || null,
+      enabled: !!r?.enabled,
+      meta_json: r?.meta_json ?? null,
+    }))
+    .filter((f) => !!f.code);
+
+  const permissions =
+    Array.isArray(j.permissions) && j.permissions.length
+      ? j.permissions.map((p) => p.perm).filter(Boolean)
+      : [];
+
+  return {
+    id: j.id,
+    business_id: j.business_id,
+    name: j.name,
+    description: j.description,
+    is_system: j.is_system,
+    is_active: j.is_active,
+    // return in multiple shapes for max compatibility with clients
+    features,
+    featuresList: features,
+    featureRules: featureRules, // keep raw include as well
+    permissions,
+    createdAt: j.createdAt ?? j.created_at,
+    updatedAt: j.updatedAt ?? j.updated_at,
+  };
+};
+
 /* ---------------------------------- CRUD ---------------------------------- */
 
 exports.getAllPackages = async (businessId) => {
@@ -152,7 +265,7 @@ exports.getAllPackages = async (businessId) => {
   needModel("BusinessPackagePermission", BusinessPackagePermission);
   needModel("Feature", Feature);
 
-  return BusinessPackage.findAll({
+  const rows = await BusinessPackage.findAll({
     where: { business_id: businessId },
     include: [
       {
@@ -166,15 +279,21 @@ exports.getAllPackages = async (businessId) => {
     ],
     order: [["id", "ASC"]],
   });
+
+  return rows.map(_shapePackageOutput);
 };
 
-exports.getPackageById = async (businessId, packageId) => {
+exports.getPackageById = async (businessId, packageId, opts = {}) => {
   needModel("BusinessPackage", BusinessPackage);
   needModel("BusinessPackageFeature", BusinessPackageFeature);
   needModel("BusinessPackagePermission", BusinessPackagePermission);
   needModel("Feature", Feature);
 
-  return BusinessPackage.findOne({
+  const tx =
+    (opts && opts.transaction) ||
+    (opts && typeof opts.commit === "function" ? opts : undefined);
+
+  const row = await BusinessPackage.findOne({
     where: { id: packageId, business_id: businessId },
     include: [
       {
@@ -186,7 +305,10 @@ exports.getPackageById = async (businessId, packageId) => {
       },
       { model: BusinessPackagePermission, as: "permissions" },
     ],
+    transaction: tx, // transactional read (important for create/update)
   });
+
+  return row ? _shapePackageOutput(row) : null;
 };
 
 exports.createPackage = async (businessId, data) => {
@@ -198,18 +320,19 @@ exports.createPackage = async (businessId, data) => {
 
   return sequelize.transaction(async (t) => {
     const b = await Business.findByPk(businessId, { transaction: t });
-    if (!b) throw new Error("Business not found");
+    if (!b) throw new HttpError("Business not found", 404);
 
     const { name, description = null, is_active = true } = data || {};
-    if (!name) throw new Error("Package name is required");
+    if (!name) throw new HttpError("Package name is required", 400);
 
     const exists = await BusinessPackage.findOne({
       where: { business_id: businessId, name },
       transaction: t,
     });
     if (exists)
-      throw new Error(
-        "A package with this name already exists in the business"
+      throw new HttpError(
+        "A package with this name already exists in the business",
+        409
       );
 
     const pkg = await BusinessPackage.create(
@@ -223,10 +346,11 @@ exports.createPackage = async (businessId, data) => {
       { transaction: t }
     );
 
-    // features
-    if (Array.isArray(data?.features) && data.features.length) {
+    // features (accept features | featuresList | featureRules)
+    const incomingFeatures = _normalizeIncomingFeatures(data);
+    if (incomingFeatures && incomingFeatures.length) {
       const map = await _featureCodeToIdMap(t);
-      const rows = data.features
+      const rows = incomingFeatures
         .map((f) => {
           const fid = map[f.code];
           if (!fid) return null;
@@ -251,7 +375,8 @@ exports.createPackage = async (businessId, data) => {
         await BusinessPackagePermission.bulkCreate(rows, { transaction: t });
     }
 
-    return exports.getPackageById(businessId, pkg.id);
+    // return freshly shaped row USING SAME TX (so the read sees uncommitted)
+    return exports.getPackageById(businessId, pkg.id, { transaction: t });
   });
 };
 
@@ -266,7 +391,7 @@ exports.updatePackage = async (businessId, packageId, data) => {
       where: { id: packageId, business_id: businessId },
       transaction: t,
     });
-    if (!pkg) throw new Error("Package not found in this business");
+    if (!pkg) throw new HttpError("Package not found in this business", 404);
 
     const patch = {};
     if (data.name !== undefined) patch.name = data.name;
@@ -274,29 +399,37 @@ exports.updatePackage = async (businessId, packageId, data) => {
     if (data.is_active !== undefined) patch.is_active = !!data.is_active;
 
     if (Object.keys(patch).length) {
-      if (patch.name) {
+      if (patch.name && patch.name !== pkg.name) {
         const exists = await BusinessPackage.findOne({
           where: { business_id: businessId, name: patch.name },
           transaction: t,
         });
         if (exists && exists.id !== pkg.id) {
-          throw new Error(
-            "A package with this name already exists in the business"
+          throw new HttpError(
+            "A package with this name already exists in the business",
+            409
           );
         }
       }
       await pkg.update(patch, { transaction: t });
     }
 
-    // replace feature rules
-    if (Array.isArray(data?.features)) {
+    // replace feature rules if caller provided any of the accepted keys
+    const featuresKeyProvided =
+      data &&
+      typeof data === "object" &&
+      ("features" in data || "featuresList" in data || "featureRules" in data);
+
+    if (featuresKeyProvided) {
+      const incomingFeatures = _normalizeIncomingFeatures(data) || [];
       await BusinessPackageFeature.destroy({
         where: { package_id: pkg.id },
         transaction: t,
       });
-      if (data.features.length) {
+
+      if (incomingFeatures.length) {
         const map = await _featureCodeToIdMap(t);
-        const rows = data.features
+        const rows = incomingFeatures
           .map((f) => {
             const fid = map[f.code];
             if (!fid) return null;
@@ -313,7 +446,7 @@ exports.updatePackage = async (businessId, packageId, data) => {
       }
     }
 
-    // replace permissions
+    // replace permissions (allow clearing when [] is sent)
     if (Array.isArray(data?.permissions)) {
       await BusinessPackagePermission.destroy({
         where: { package_id: pkg.id },
@@ -326,7 +459,8 @@ exports.updatePackage = async (businessId, packageId, data) => {
         await BusinessPackagePermission.bulkCreate(rows, { transaction: t });
     }
 
-    return exports.getPackageById(businessId, pkg.id);
+    // return freshly shaped row USING SAME TX
+    return exports.getPackageById(businessId, pkg.id, { transaction: t });
   });
 };
 
@@ -341,7 +475,7 @@ exports.deletePackage = async (businessId, packageId) => {
       where: { id: packageId, business_id: businessId },
       transaction: t,
     });
-    if (!pkg) throw new Error("Package not found in this business");
+    if (!pkg) throw new HttpError("Package not found in this business", 404);
 
     await BusinessPackageFeature.destroy({
       where: { package_id: pkg.id },
@@ -379,8 +513,8 @@ exports.assignPackageToUser = async (businessId, userId, packageId) => {
         transaction: t,
       }),
     ]);
-    if (!user) throw new Error("User not found in this business");
-    if (!pkg) throw new Error("Package not found in this business");
+    if (!user) throw new HttpError("User not found in this business", 404);
+    if (!pkg) throw new HttpError("Package not found in this business", 404);
 
     await BusinessUserPackage.findOrCreate({
       where: { user_id: userId, package_id: packageId },
@@ -401,7 +535,7 @@ exports.removePackageFromUser = async (businessId, userId, packageId) => {
       where: { id: packageId, business_id: businessId },
       transaction: t,
     });
-    if (!pkg) throw new Error("Package not found in this business");
+    if (!pkg) throw new HttpError("Package not found in this business", 404);
 
     await BusinessUserPackage.destroy({
       where: { user_id: userId, package_id: packageId },
@@ -435,8 +569,8 @@ exports.setUserPackage = async (
         transaction: t,
       }),
     ]);
-    if (!user) throw new Error("User not found in this business");
-    if (!pkg) throw new Error("Package not found in this business");
+    if (!user) throw new HttpError("User not found in this business", 404);
+    if (!pkg) throw new HttpError("Package not found in this business", 404);
 
     if (exclusive) {
       await BusinessUserPackage.destroy({
@@ -519,7 +653,7 @@ exports.getEffectiveAccessForUser = async (businessId, userId) => {
 
   const bId = Number(businessId);
   const uId = Number(userId);
-  if (!bId || !uId) throw new Error("Missing businessId/userId");
+  if (!bId || !uId) throw new HttpError("Missing businessId/userId", 400);
 
   // Ensure the user is in the business (grab default_package_id too)
   const user = await User.findOne({

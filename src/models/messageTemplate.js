@@ -1,4 +1,3 @@
-// src/models/messageTemplate.js
 "use strict";
 const { Model, DataTypes } = require("sequelize");
 const sequelize = require("../config/database");
@@ -8,21 +7,20 @@ class MessageTemplate extends Model {}
 MessageTemplate.init(
   {
     id: { type: DataTypes.INTEGER, autoIncrement: true, primaryKey: true },
-    user_id: { type: DataTypes.INTEGER, allowNull: true }, // null => system template
+
+    // NULL => system template; otherwise owned by a business
+    business_id: { type: DataTypes.INTEGER, allowNull: true },
+
+    // required category
     category_id: { type: DataTypes.INTEGER, allowNull: false },
-    template_name: { type: DataTypes.STRING, allowNull: false },
-    message_ar: { type: DataTypes.TEXT, allowNull: false },
+
+    // bilingual names
+    template_name_en: { type: DataTypes.STRING, allowNull: false },
+    template_name_ar: { type: DataTypes.STRING, allowNull: false },
+
+    // bilingual bodies
     message_en: { type: DataTypes.TEXT, allowNull: false },
-    placeholders: {
-      type: DataTypes.JSON,
-      defaultValue: [
-        "{name}",
-        "{business_name}",
-        "{price}",
-        "{offer_price}",
-        "{date}",
-      ],
-    },
+    message_ar: { type: DataTypes.TEXT, allowNull: false },
   },
   {
     sequelize,

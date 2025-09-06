@@ -1,8 +1,6 @@
 "use strict";
-
 const express = require("express");
 const router = express.Router();
-
 const messageTemplateController = require("../controllers/messageTemplateController");
 const authMiddleware = require("../middleware/authMiddleware");
 const requirePermission = require("../middleware/requirePermission");
@@ -12,6 +10,13 @@ router.get(
   authMiddleware,
   requirePermission("templates.read"),
   messageTemplateController.getTemplateCategories
+);
+
+router.get(
+  "/placeholders", // ⬅️ NEW: global placeholders for UI convenience
+  authMiddleware,
+  requirePermission("templates.read"),
+  messageTemplateController.getGlobalPlaceholders
 );
 
 router.post(

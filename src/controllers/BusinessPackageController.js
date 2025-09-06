@@ -30,12 +30,11 @@ class BusinessPackageController {
     }
   }
 
-  /* -------- NEW: package-scoped effective access for preview in UI --------- */
+  /* -------- package-scoped effective access for preview in UI -------------- */
   static async packageEffectiveAccess(req, res, next) {
     try {
       const { businessId, packageId } = req.params;
 
-      // Use your service that loads a package with featureRules + permissions
       const pkg = await BusinessPackageService.getPackageById(
         Number(businessId),
         Number(packageId)
@@ -54,8 +53,11 @@ class BusinessPackageController {
             }))
         : [];
 
+      // Support both shapes (array of strings OR array of {perm})
       const permissions = Array.isArray(pkg.permissions)
-        ? pkg.permissions.map((p) => p.perm).filter(Boolean)
+        ? pkg.permissions
+            .map((p) => (typeof p === "string" ? p : p?.perm))
+            .filter(Boolean)
         : [];
 
       return res.json({ featuresList, permissions });
@@ -72,7 +74,16 @@ class BusinessPackageController {
         Number(businessId),
         req.body || {}
       );
-      res.status(201).json(pkg);
+
+      res
+        .status(201)
+        .location(`/api/businesses/${businessId}/packages/${pkg.id}`)
+        .json({
+          message: "Package created successfully",
+          id: pkg.id,
+          package_id: pkg.id, // alias for compatibility
+          package: pkg, // full resource
+        });
     } catch (e) {
       next(e);
     }

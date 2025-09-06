@@ -206,8 +206,8 @@ module.exports = {
       }) => {
         const [rows] = await sequelize.query(
           `SELECT id FROM \`UsageCounters\`
-             WHERE business_id=? AND feature_code=? AND period_key=? AND (user_id <=> ?)
-             LIMIT 1`,
+           WHERE business_id=? AND feature_code=? AND period_key=? AND (user_id <=> ?)
+           LIMIT 1`,
           {
             replacements: [business_id, feature_code, period_key, user_id],
             transaction: t,
@@ -216,7 +216,7 @@ module.exports = {
         if (!rows.length) {
           await sequelize.query(
             `INSERT INTO \`UsageCounters\`
-              (business_id, user_id, feature_code, period_key, used, createdAt, updatedAt)
+             (business_id, user_id, feature_code, period_key, used, createdAt, updatedAt)
              VALUES (?, ?, ?, ?, ?, NOW(), NOW())`,
             {
               replacements: [
@@ -240,18 +240,18 @@ module.exports = {
       // ---------- DDL: PermissionCatalog + helpful indexes ----------
       await sequelize.query(
         `CREATE TABLE IF NOT EXISTS \`PermissionCatalog\` (
-           \`perm\`        VARCHAR(191) NOT NULL,
-           \`feature_id\`  BIGINT UNSIGNED NULL,
-           \`name\`        VARCHAR(255) NULL,
-           \`description\` TEXT NULL,
-           \`createdAt\`   DATETIME NOT NULL,
-           \`updatedAt\`   DATETIME NOT NULL,
-           PRIMARY KEY (\`perm\`),
-           KEY \`pc_feature_id\` (\`feature_id\`),
-           CONSTRAINT \`pc_feature_fk\`
-             FOREIGN KEY (\`feature_id\`) REFERENCES \`Features\`(\`id\`)
-             ON DELETE SET NULL ON UPDATE CASCADE
-         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
+          \`perm\`        VARCHAR(191) NOT NULL,
+          \`feature_id\`  BIGINT UNSIGNED NULL,
+          \`name\`        VARCHAR(255) NULL,
+          \`description\` TEXT NULL,
+          \`createdAt\`   DATETIME NOT NULL,
+          \`updatedAt\`   DATETIME NOT NULL,
+          PRIMARY KEY (\`perm\`),
+          KEY \`pc_feature_id\` (\`feature_id\`),
+          CONSTRAINT \`pc_feature_fk\`
+            FOREIGN KEY (\`feature_id\`) REFERENCES \`Features\`(\`id\`)
+            ON DELETE SET NULL ON UPDATE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
         { transaction: t }
       );
 
@@ -276,6 +276,31 @@ module.exports = {
       );
       await tryExec(
         "ALTER TABLE `UserPermissions` ADD UNIQUE KEY `u_user_perm` (`user_id`,`perm`);"
+      );
+
+      // ---------- DDL: Global MessagesPlaceholders (idempotent) ----------
+      await sequelize.query(
+        `CREATE TABLE IF NOT EXISTS \`MessagesPlaceholders\` (
+          \`id\`            INT NOT NULL AUTO_INCREMENT,
+          \`code\`          VARCHAR(191) NOT NULL,
+          \`name_en\`       VARCHAR(255) NOT NULL,
+          \`name_ar\`       VARCHAR(255) NOT NULL,
+          \`description_en\` TEXT NULL,
+          \`description_ar\` TEXT NULL,
+          \`example_en\`     TEXT NULL,
+          \`example_ar\`     TEXT NULL,
+          \`is_active\`     TINYINT(1) NOT NULL DEFAULT 1,
+          \`createdAt\`     DATETIME NOT NULL,
+          \`updatedAt\`     DATETIME NOT NULL,
+          PRIMARY KEY (\`id\`),
+          UNIQUE KEY \`u_msgph_code\` (\`code\`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
+        { transaction: t }
+      );
+
+      // ---------- Remove legacy column from MessageTemplates (idempotent) ----------
+      await tryExec(
+        "ALTER TABLE `MessageTemplates` DROP COLUMN `placeholders`"
       );
 
       // ---------- 1) categories ----------
@@ -381,19 +406,21 @@ module.exports = {
         ],
         ["bulk_send", "Bulk Send", "Send to many recipients with pacing"],
         ["media_attachments", "Media Attachments", "Send images, docs, voice"],
+        ["customers", "Customers", "Manage customer directory & segments"],
+        ["templates", "Templates", "Manage message templates"],
         ["reports", "Reports", "Delivery stats and charts"],
         ["api_access", "API Access", "Use REST endpoints & tokens"],
         ["webhooks", "Webhooks", "Receive delivery/receipt events"],
-        ["users", "Users", "Manage users and permissions"],
-        ["customers", "Customers", "Manage customer directory & segments"],
-        ["templates", "Templates", "Manage message templates"],
-        ["features", "Feature Flags", "Manage feature toggles and rollout"],
         [
           "integrations.whatsapp",
           "WhatsApp Integration",
           "WhatsApp integration & auth",
         ],
+        ["users", "Users", "Manage users and permissions"],
+        ["features", "Feature Flags", "Manage feature toggles and rollout"],
         ["chatbot", "Chatbot", "Chatbot configuration & runtime"],
+        ["packages", "Packages", "Packages & pricing management (UI gate)"],
+        ["settings", "Settings", "Settings section (UI gate)"],
       ];
       for (const [code, name, description] of features) {
         await sequelize.query(
@@ -445,29 +472,25 @@ module.exports = {
         description: "View reports only",
       });
 
-      // ---------- 7) permission catalog (explicit map) ----------
+      // ---------- 7) permission catalog ----------
       const PERMISSIONS_BY_FEATURE = {
-        // Messaging
         single_messages: ["messages.read", "messages.send.single"],
         bulk_send: ["messages.read", "messages.send.bulk"],
-
-        // Scheduling
         scheduled_messages: [
           "schedules.read",
           "schedules.create",
           "schedules.update",
           "schedules.delete",
         ],
-
-        // Media
         media_attachments: ["media.upload"],
-
-        // CRM
         customers: [
           "customers.read",
           "customers.create",
           "customers.update",
           "customers.delete",
+          "customers.template.download",
+          "customers.sync",
+          "customers.import",
         ],
         templates: [
           "templates.read",
@@ -475,8 +498,6 @@ module.exports = {
           "templates.update",
           "templates.delete",
         ],
-
-        // Users / Team
         users: [
           "users.view",
           "users.create",
@@ -486,36 +507,24 @@ module.exports = {
           "multiuser.manage",
           "team.manage",
         ],
-
-        // Reports (include legacy analytics aliases)
         reports: [
           "reports.view",
           "reports.export",
           "analytics.view",
           "analytics.export",
         ],
-
-        // Platform & Integrations
+        api_access: ["api.manage", "integrations.manage", "whatsapp.manage"],
         webhooks: ["webhooks.manage"],
-        api_access: ["api.manage", "integrations.manage"],
-
-        // Feature flags
         features: ["features.read", "features.write"],
-
-        // Chatbot
         chatbot: ["chatbot.manage"],
-
-        // WhatsApp integration
-        "integrations.whatsapp": [
-          "whatsapp.manage",
-          "integrations.whatsapp.auth",
-        ],
+        "integrations.whatsapp": ["integrations.whatsapp.auth"],
+        packages: ["packages.manage"],
+        settings: [],
       };
 
       const ALL_PERMS = Array.from(
         new Set(Object.values(PERMISSIONS_BY_FEATURE).flat())
       );
-
       const upsertCatalog = async (feature_code, perm) => {
         const feature_id = fid(feature_code) || null;
         await sequelize.query(
@@ -525,7 +534,6 @@ module.exports = {
           { replacements: [perm, feature_id], transaction: t }
         );
       };
-
       for (const [fcode, perms] of Object.entries(PERMISSIONS_BY_FEATURE)) {
         for (const p of perms) await upsertCatalog(fcode, p);
       }
@@ -580,10 +588,8 @@ module.exports = {
         feature_id: fid("reports"),
         enabled: false,
       });
-
       for (const p of [
         "messages.read",
-        "messages.send.single",
         "media.upload",
         "customers.read",
         "templates.read",
@@ -591,7 +597,7 @@ module.exports = {
         await upsertPackagePerm({ package_id: userPkg.id, perm: p });
       }
 
-      // ---------- 10) Messenger: single + bulk + customers.read ----------
+      // ---------- 10) Messenger ----------
       await upsertPackageFeature({
         package_id: messengerPkg.id,
         feature_id: fid("single_messages"),
@@ -627,7 +633,6 @@ module.exports = {
         feature_id: fid("templates"),
         enabled: false,
       });
-
       for (const p of [
         "messages.read",
         "messages.send.single",
@@ -648,7 +653,7 @@ module.exports = {
         perm: "reports.view",
       });
 
-      // ---------- 12) assign packages + set default (and clean extras) ----------
+      // ---------- 12) assign packages + defaults ----------
       await upsertUserPackage({
         user_id: superAdmin.id,
         package_id: adminPkg.id,
@@ -666,7 +671,6 @@ module.exports = {
         package_id: reportsPkg.id,
       });
 
-      // keep only intended package (avoid "custom" label in UI)
       await tryExec(
         "DELETE FROM `BusinessUserPackages` WHERE user_id=? AND package_id <> ?",
         [superAdmin.id, adminPkg.id]
@@ -684,7 +688,6 @@ module.exports = {
         [reportsUser.id, reportsPkg.id]
       );
 
-      // defaults
       await sequelize.query(
         `UPDATE \`Users\` SET default_package_id=? WHERE id=?`,
         {
@@ -714,7 +717,6 @@ module.exports = {
         }
       );
 
-      // Ensure Super Admin is truly ADMIN (not custom):
       await tryExec("DELETE FROM `UserFeatures` WHERE user_id = ?", [
         superAdmin.id,
       ]);
@@ -811,50 +813,263 @@ module.exports = {
         }
       }
 
-      // ---------- 14) system templates ----------
+      // ---------- 14) Message templates (UPDATED: no `placeholders` column) ----------
+      // System templates (global) -> business_id = NULL
       const systemTemplates = [
         {
+          business_id: null,
           category_id: retail.id,
-          template_name: "Order Confirmation",
-          message_ar:
-            "مرحبًا {name}، تم تأكيد طلبك لدى {business_name} بسعر {price}. شكراً لك!",
+          template_name_en: "Order Confirmation",
+          template_name_ar: "تأكيد الطلب",
           message_en:
-            "Hello {name}, your order at {business_name} is confirmed at {price}. Thank you!",
-          placeholders: JSON.stringify([
-            "{name}",
-            "{business_name}",
-            "{price}",
-          ]),
+            "Hello {first_name}, your order at {business_name} is confirmed at {price}. Thank you!",
+          message_ar:
+            "مرحبًا {first_name}، تم تأكيد طلبك لدى {business_name} بسعر {price}. شكراً لك!",
         },
         {
+          business_id: null,
           category_id: tech.id,
-          template_name: "Discount Offer",
-          message_ar:
-            "مرحبًا {name}، لدينا عرض خاص! السعر الأصلي {price}، والسعر المخفض {offer_price}. انتهز الفرصة!",
+          template_name_en: "Discount Offer",
+          template_name_ar: "عرض الخصم",
           message_en:
-            "Hello {name}, we have a special offer! Original price {price}, discounted price {offer_price}. Grab it now!",
-          placeholders: JSON.stringify(["{name}", "{price}", "{offer_price}"]),
+            "Hello {first_name}, we have a special offer! Original price {price}, discounted price {offer_price}. Grab it now!",
+          message_ar:
+            "مرحبًا {first_name}، لدينا عرض خاص! السعر الأصلي {price}، والسعر المخفض {offer_price}. انتهز الفرصة!",
         },
       ];
       for (const tpl of systemTemplates) {
         await sequelize.query(
           `INSERT INTO \`MessageTemplates\`
-           (user_id, category_id, template_name, message_ar, message_en, placeholders, createdAt, updatedAt)
-           VALUES (NULL, ?, ?, ?, ?, ?, NOW(), NOW())`,
+           (business_id, category_id, template_name_en, template_name_ar, message_en, message_ar, createdAt, updatedAt)
+           VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())
+           ON DUPLICATE KEY UPDATE
+             template_name_en=VALUES(template_name_en),
+             template_name_ar=VALUES(template_name_ar),
+             message_en=VALUES(message_en),
+             message_ar=VALUES(message_ar),
+             updatedAt=VALUES(updatedAt)`,
           {
             replacements: [
+              tpl.business_id,
               tpl.category_id,
-              tpl.template_name,
-              tpl.message_ar,
+              tpl.template_name_en,
+              tpl.template_name_ar,
               tpl.message_en,
-              tpl.placeholders,
+              tpl.message_ar,
             ],
             transaction: t,
           }
         );
       }
 
-      // ---------- 15) demo categories & customers ----------
+      // Business templates (scoped to Super Admin Business)
+      const businessTemplates = [
+        {
+          business_id: superBusiness.id,
+          category_id: retail.id,
+          template_name_en: "Welcome",
+          template_name_ar: "مرحباً",
+          message_en:
+            "Welcome {first_name}! Thanks for joining {business_name}. We're glad to have you.",
+          message_ar:
+            "مرحباً {first_name}! شكراً لانضمامك إلى {business_name}. يسعدنا وجودك معنا.",
+        },
+        {
+          business_id: superBusiness.id,
+          category_id: tech.id,
+          template_name_en: "Follow Up",
+          template_name_ar: "متابعة",
+          message_en:
+            "Hi {first_name}, just following up regarding your recent inquiry at {business_name}.",
+          message_ar:
+            "مرحباً {first_name}، نتابع استفسارك الأخير لدى {business_name}.",
+        },
+      ];
+      for (const tpl of businessTemplates) {
+        await sequelize.query(
+          `INSERT INTO \`MessageTemplates\`
+           (business_id, category_id, template_name_en, template_name_ar, message_en, message_ar, createdAt, updatedAt)
+           VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())
+           ON DUPLICATE KEY UPDATE
+             template_name_en=VALUES(template_name_en),
+             template_name_ar=VALUES(template_name_ar),
+             message_en=VALUES(message_en),
+             message_ar=VALUES(message_ar),
+             updatedAt=VALUES(updatedAt)`,
+          {
+            replacements: [
+              tpl.business_id,
+              tpl.category_id,
+              tpl.template_name_en,
+              tpl.template_name_ar,
+              tpl.message_en,
+              tpl.message_ar,
+            ],
+            transaction: t,
+          }
+        );
+      }
+
+      // ---------- 14.5) Seed global placeholders (EN/AR) ----------
+      const PLACEHOLDERS = [
+        {
+          code: "first_name",
+          name_en: "First Name",
+          name_ar: "الاسم الأول",
+          description_en: "The recipient's first name",
+          description_ar: "الاسم الأول للمستلم",
+          example_en: "Ahmed",
+          example_ar: "أحمد",
+        },
+        {
+          code: "last_name",
+          name_en: "Last Name",
+          name_ar: "اسم العائلة",
+          description_en: "The recipient's last name",
+          description_ar: "اسم عائلة المستلم",
+          example_en: "Khalil",
+          example_ar: "خليل",
+        },
+        {
+          code: "full_name",
+          name_en: "Full Name",
+          name_ar: "الاسم الكامل",
+          description_en: "The recipient's full name",
+          description_ar: "الاسم الكامل للمستلم",
+          example_en: "Ahmed Khalil",
+          example_ar: "أحمد خليل",
+        },
+        {
+          code: "business_name",
+          name_en: "Business Name",
+          name_ar: "اسم النشاط",
+          description_en: "Your business or store name",
+          description_ar: "اسم نشاطك التجاري أو متجرك",
+          example_en: "ChatFusion",
+          example_ar: "شات فيوجن",
+        },
+        {
+          code: "order_id",
+          name_en: "Order ID",
+          name_ar: "رقم الطلب",
+          description_en: "The order identifier",
+          description_ar: "معرّف الطلب",
+          example_en: "#A12345",
+          example_ar: "#A12345",
+        },
+        {
+          code: "price",
+          name_en: "Price",
+          name_ar: "السعر",
+          description_en: "Original or current price",
+          description_ar: "السعر الأصلي أو الحالي",
+          example_en: "$49.90",
+          example_ar: "49.90$",
+        },
+        {
+          code: "offer_price",
+          name_en: "Offer Price",
+          name_ar: "سعر العرض",
+          description_en: "Discounted price",
+          description_ar: "السعر بعد الخصم",
+          example_en: "$39.90",
+          example_ar: "39.90$",
+        },
+        {
+          code: "tracking_url",
+          name_en: "Tracking URL",
+          name_ar: "رابط التتبع",
+          description_en: "Shipment tracking link",
+          description_ar: "رابط تتبع الشحنة",
+          example_en: "https://track.example.com/A12345",
+          example_ar: "https://track.example.com/A12345",
+        },
+        {
+          code: "support_phone",
+          name_en: "Support Phone",
+          name_ar: "هاتف الدعم",
+          description_en: "Support contact phone number",
+          description_ar: "رقم هاتف دعم العملاء",
+          example_en: "+1-555-555-5555",
+          example_ar: "+1-555-555-5555",
+        },
+        {
+          code: "support_email",
+          name_en: "Support Email",
+          name_ar: "بريد الدعم",
+          description_en: "Support contact email",
+          description_ar: "بريد دعم العملاء",
+          example_en: "support@example.com",
+          example_ar: "support@example.com",
+        },
+        {
+          code: "appointment_date",
+          name_en: "Appointment Date",
+          name_ar: "تاريخ الموعد",
+          description_en: "Date of appointment",
+          description_ar: "تاريخ الموعد",
+          example_en: "2025-09-06",
+          example_ar: "2025-09-06",
+        },
+        {
+          code: "appointment_time",
+          name_en: "Appointment Time",
+          name_ar: "وقت الموعد",
+          description_en: "Time of appointment",
+          description_ar: "وقت الموعد",
+          example_en: "10:30 AM",
+          example_ar: "10:30 صباحاً",
+        },
+        {
+          code: "due_date",
+          name_en: "Due Date",
+          name_ar: "تاريخ الاستحقاق",
+          description_en: "Invoice or payment due date",
+          description_ar: "تاريخ استحقاق الفاتورة أو الدفع",
+          example_en: "2025-10-01",
+          example_ar: "2025-10-01",
+        },
+        {
+          code: "invoice_number",
+          name_en: "Invoice Number",
+          name_ar: "رقم الفاتورة",
+          description_en: "Invoice identifier",
+          description_ar: "معرّف الفاتورة",
+          example_en: "INV-2025-0012",
+          example_ar: "INV-2025-0012",
+        },
+      ];
+
+      for (const ph of PLACEHOLDERS) {
+        await sequelize.query(
+          `INSERT INTO \`MessagesPlaceholders\`
+           (code, name_en, name_ar, description_en, description_ar, example_en, example_ar, is_active, createdAt, updatedAt)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 1, NOW(), NOW())
+           ON DUPLICATE KEY UPDATE
+             name_en=VALUES(name_en),
+             name_ar=VALUES(name_ar),
+             description_en=VALUES(description_en),
+             description_ar=VALUES(description_ar),
+             example_en=VALUES(example_en),
+             example_ar=VALUES(example_ar),
+             is_active=1,
+             updatedAt=VALUES(updatedAt)`,
+          {
+            replacements: [
+              ph.code,
+              ph.name_en,
+              ph.name_ar,
+              ph.description_en,
+              ph.description_ar,
+              ph.example_en,
+              ph.example_ar,
+            ],
+            transaction: t,
+          }
+        );
+      }
+
+      // ---------- 15) demo categories & customers (UNCHANGED) ----------
       for (const name of ["Regular", "VIP", "Wholesale"]) {
         const [exists] = await sequelize.query(
           "SELECT id FROM `CustomerCategories` WHERE user_id = ? AND name = ? LIMIT 1",
@@ -924,7 +1139,7 @@ module.exports = {
           to_number: "+15550123456",
           body: "Hello from seed! (ONE_OFF) See you soon.",
           media_url: null,
-          variables_json: JSON.stringify({ name: "Seed User" }),
+          variables_json: JSON.stringify({ first_name: "Seed User" }),
           type: "ONE_OFF",
           send_at_utc: in20m,
           cron_expr: null,
@@ -985,47 +1200,30 @@ module.exports = {
         );
       }
 
-      // ---------- 17) BACKFILL: map any stray permissions so NONE remain unassigned ----------
+      // ---------- 17) BACKFILL PermissionCatalog ----------
       const guessFeature = (perm) => {
         const map = [
-          // Messaging
           [/^messages\.send\.single$/, "single_messages"],
           [/^messages\.send\.bulk$/, "bulk_send"],
           [/^messages\.read$/, "single_messages"],
-
-          // Scheduling
           [/^schedules\./, "scheduled_messages"],
-
-          // Media
           [/^media\./, "media_attachments"],
-
-          // CRM
           [/^customers\./, "customers"],
           [/^templates\./, "templates"],
-
-          // Users
           [/^users\./, "users"],
           [/^(team\.manage|multiuser\.manage)$/, "users"],
-
-          // Reports & legacy analytics
           [/^reports\./, "reports"],
           [/^analytics\./, "reports"],
-
-          // Platform
           [/^webhooks\./, "webhooks"],
           [/^api\./, "api_access"],
           [/^integrations\.manage$/, "api_access"],
-
-          // Features / Chatbot
+          [/^whatsapp\.manage$/, "api_access"],
           [/^features\./, "features"],
           [/^chatbot\./, "chatbot"],
-
-          // WhatsApp
-          [/^whatsapp\.manage$/, "integrations.whatsapp"],
-          [/^integrations\.whatsapp\./, "integrations.whatsapp"],
+          [/^integrations\.whatsapp\.auth$/, "integrations.whatsapp"],
+          [/^packages\.manage$/, "packages"],
         ];
         for (const [re, f] of map) if (re.test(perm)) return f;
-        // final fallback: route unknowns to api_access so no NULL feature_id remains
         return "api_access";
       };
 
@@ -1054,7 +1252,6 @@ module.exports = {
         );
       }
 
-      // absolutely no NULL feature_id rows left in catalog
       await sequelize.query(
         `UPDATE \`PermissionCatalog\` SET feature_id = ?
          WHERE feature_id IS NULL`,
@@ -1080,6 +1277,7 @@ module.exports = {
         "custom@demo.com",
       ];
 
+      // Clean scheduled messages
       await sequelize.query(
         "DELETE FROM `ScheduledMessages` WHERE id IN (?, ?)",
         {
@@ -1091,11 +1289,13 @@ module.exports = {
         }
       );
 
+      // Clean usage counters
       await sequelize.query(
         "DELETE FROM `UsageCounters` WHERE business_id IN (SELECT id FROM `Businesses` WHERE business_name = ?)",
         { replacements: ["Super Admin Business"], transaction: t }
       );
 
+      // Remove user-package bindings
       await sequelize.query(
         `DELETE bup FROM \`BusinessUserPackages\` bup
          JOIN \`Users\` u ON u.id = bup.user_id
@@ -1103,6 +1303,7 @@ module.exports = {
         { replacements: emails, transaction: t }
       );
 
+      // Remove user-level overrides
       await sequelize.query(
         `DELETE up FROM \`UserPermissions\` up
          JOIN \`Users\` u ON u.id = up.user_id
@@ -1116,6 +1317,7 @@ module.exports = {
         { replacements: emails, transaction: t }
       );
 
+      // Remove package features/perms and packages
       await sequelize.query(
         `DELETE bpf FROM \`BusinessPackageFeatures\` bpf
          JOIN \`BusinessPackages\` bp ON bp.id = bpf.package_id
@@ -1133,6 +1335,7 @@ module.exports = {
         { replacements: ["Super Admin Business"], transaction: t }
       );
 
+      // Customers & categories seeded for demo
       await sequelize.query(
         "DELETE FROM `Customers` WHERE user_id IN (SELECT id FROM `Users` WHERE email_address = ?)",
         { replacements: ["superadmin@superadmin.com"], transaction: t }
@@ -1141,30 +1344,64 @@ module.exports = {
         "DELETE FROM `CustomerCategories` WHERE user_id IN (SELECT id FROM `Users` WHERE email_address = ?)",
         { replacements: ["superadmin@superadmin.com"], transaction: t }
       );
+
+      // Remove message templates we seeded
+      const systemNamesEn = ["Order Confirmation", "Discount Offer"];
+      const systemNamesAr = ["تأكيد الطلب", "عرض الخصم"];
+      const businessNamesEn = ["Welcome", "Follow Up"];
+      const businessNamesAr = ["مرحباً", "متابعة"];
+
+      // Delete system templates (business_id IS NULL)
       await sequelize.query(
-        `DELETE mt FROM \`MessageTemplates\` mt
-         LEFT JOIN \`Users\` u ON mt.user_id = u.id
-         WHERE u.email_address = ? OR mt.user_id IS NULL`,
-        { replacements: ["superadmin@superadmin.com"], transaction: t }
+        `DELETE FROM \`MessageTemplates\`
+         WHERE business_id IS NULL
+           AND template_name_en IN (${systemNamesEn.map(() => "?").join(",")})
+           AND template_name_ar IN (${systemNamesAr.map(() => "?").join(",")})`,
+        { replacements: [...systemNamesEn, ...systemNamesAr], transaction: t }
       );
 
+      // Delete business templates for Super Admin Business
+      await sequelize.query(
+        `DELETE FROM \`MessageTemplates\`
+         WHERE business_id IN (SELECT id FROM \`Businesses\` WHERE business_name = ?)
+           AND template_name_en IN (${businessNamesEn.map(() => "?").join(",")})
+           AND template_name_ar IN (${businessNamesAr
+             .map(() => "?")
+             .join(",")})`,
+        {
+          replacements: [
+            "Super Admin Business",
+            ...businessNamesEn,
+            ...businessNamesAr,
+          ],
+          transaction: t,
+        }
+      );
+
+      // Remove business features row
       await sequelize.query(
         "DELETE FROM `BusinessFeatures` WHERE business_id IN (SELECT id FROM `Businesses` WHERE business_name = ?)",
         { replacements: ["Super Admin Business"], transaction: t }
       );
 
+      // Remove seeded users
       await sequelize.query(
         `DELETE FROM \`Users\` WHERE email_address IN (${emails
           .map(() => "?")
           .join(",")})`,
         { replacements: emails, transaction: t }
       );
+
+      // Remove business
       await sequelize.query(
         "DELETE FROM `Businesses` WHERE business_name = ?",
-        { replacements: ["Super Admin Business"], transaction: t }
+        {
+          replacements: ["Super Admin Business"],
+          transaction: t,
+        }
       );
 
-      // remove catalog rows we seeded (keep table)
+      // Remove catalog rows we seeded (keep table)
       const seededPerms = [
         "messages.read",
         "messages.send.single",
@@ -1196,11 +1433,12 @@ module.exports = {
         "webhooks.manage",
         "api.manage",
         "integrations.manage",
+        "whatsapp.manage",
         "features.read",
         "features.write",
         "chatbot.manage",
-        "whatsapp.manage",
         "integrations.whatsapp.auth",
+        "packages.manage",
       ];
       await sequelize
         .query(
@@ -1211,7 +1449,7 @@ module.exports = {
         )
         .catch(() => {});
 
-      // delete the current feature set
+      // delete the current feature set (including UI gates)
       const ALL_FEATURE_CODES = [
         "scheduled_messages",
         "single_messages",
@@ -1226,6 +1464,8 @@ module.exports = {
         "features",
         "integrations.whatsapp",
         "chatbot",
+        "packages",
+        "settings",
       ];
       await sequelize.query(
         `DELETE FROM \`Features\` WHERE code IN (${ALL_FEATURE_CODES.map(
@@ -1236,7 +1476,34 @@ module.exports = {
 
       await sequelize.query(
         "DELETE FROM `BusinessCategories` WHERE category_name IN (?, ?)",
-        { replacements: ["Retail", "Tech"], transaction: t }
+        {
+          replacements: ["Retail", "Tech"],
+          transaction: t,
+        }
+      );
+
+      // Remove seeded global placeholders
+      const PH_CODES = [
+        "first_name",
+        "last_name",
+        "full_name",
+        "business_name",
+        "order_id",
+        "price",
+        "offer_price",
+        "tracking_url",
+        "support_phone",
+        "support_email",
+        "appointment_date",
+        "appointment_time",
+        "due_date",
+        "invoice_number",
+      ];
+      await sequelize.query(
+        `DELETE FROM \`MessagesPlaceholders\` WHERE code IN (${PH_CODES.map(
+          () => "?"
+        ).join(",")})`,
+        { replacements: PH_CODES, transaction: t }
       );
 
       await t.commit();

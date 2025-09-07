@@ -8,6 +8,10 @@ module.exports = {
       email_address: { type: Sequelize.STRING, allowNull: false, unique: true },
       phone_number: { type: Sequelize.STRING, allowNull: false, unique: true },
       password: { type: Sequelize.STRING, allowNull: false },
+
+      // NEW: IANA timezone (e.g., "Asia/Hebron", "America/New_York")
+      timezone: { type: Sequelize.STRING(64), allowNull: true },
+
       is_active: { type: Sequelize.BOOLEAN, defaultValue: true },
       is_deleted: { type: Sequelize.BOOLEAN, defaultValue: false },
       business_id: {
@@ -30,12 +34,14 @@ module.exports = {
         ),
       },
     });
+
     await q.addIndex("Users", ["email_address"], {
       name: "users_email_address",
     });
     await q.addIndex("Users", ["phone_number"], { name: "users_phone_number" });
     await q.addIndex("Users", ["business_id"], { name: "users_business_id" });
   },
+
   down: async (q) => {
     await q.dropTable("Users");
   },

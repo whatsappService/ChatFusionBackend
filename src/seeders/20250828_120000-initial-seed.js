@@ -10,6 +10,8 @@ module.exports = {
     const t = await sequelize.transaction();
 
     try {
+      const DEFAULT_TZ = process.env.SEED_TZ || "Asia/Hebron";
+
       // ---------- helpers ----------
       const insertOrGet = async ({
         table,
@@ -47,16 +49,18 @@ module.exports = {
         password_hash,
         business_id,
         default_package_id = null,
+        timezone = DEFAULT_TZ, // <-- NEW
       }) => {
         await sequelize.query(
           `INSERT INTO \`Users\`
-           (full_name, email_address, phone_number, password, is_active, is_deleted, business_id, default_package_id, createdAt, updatedAt)
-           VALUES (?, ?, ?, ?, 1, 0, ?, ?, NOW(), NOW())
+           (full_name, email_address, phone_number, password, timezone, is_active, is_deleted, business_id, default_package_id, createdAt, updatedAt)
+           VALUES (?, ?, ?, ?, ?, 1, 0, ?, ?, NOW(), NOW())
            ON DUPLICATE KEY UPDATE
              full_name=VALUES(full_name),
              password=VALUES(password),
              business_id=VALUES(business_id),
              default_package_id=VALUES(default_package_id),
+             timezone=VALUES(timezone),
              updatedAt=VALUES(updatedAt)`,
           {
             replacements: [
@@ -64,6 +68,7 @@ module.exports = {
               email_address,
               phone_number,
               password_hash,
+              timezone, // <-- NEW
               business_id,
               default_package_id,
             ],
@@ -336,6 +341,7 @@ module.exports = {
           email: "business@example.com",
           is_active: 1,
           is_deleted: 0,
+          default_timezone: DEFAULT_TZ,
           category_id: retail.id,
           api_key: null,
           createdAt: new Date(),
@@ -354,6 +360,7 @@ module.exports = {
         password_hash: pwdHash,
         business_id: superBusiness.id,
         default_package_id: null,
+        timezone: DEFAULT_TZ, // <-- NEW
       });
 
       const messengerUser = await upsertUserByEmail({
@@ -363,6 +370,7 @@ module.exports = {
         password_hash: pwdHash,
         business_id: superBusiness.id,
         default_package_id: null,
+        timezone: DEFAULT_TZ, // <-- NEW
       });
 
       const basicUser = await upsertUserByEmail({
@@ -372,6 +380,7 @@ module.exports = {
         password_hash: pwdHash,
         business_id: superBusiness.id,
         default_package_id: null,
+        timezone: DEFAULT_TZ, // <-- NEW
       });
 
       const reportsUser = await upsertUserByEmail({
@@ -381,6 +390,7 @@ module.exports = {
         password_hash: pwdHash,
         business_id: superBusiness.id,
         default_package_id: null,
+        timezone: DEFAULT_TZ, // <-- NEW
       });
 
       const customUser = await upsertUserByEmail({
@@ -390,6 +400,7 @@ module.exports = {
         password_hash: pwdHash,
         business_id: superBusiness.id,
         default_package_id: null,
+        timezone: DEFAULT_TZ, // <-- NEW
       });
 
       // ---------- 4) features ----------
@@ -814,7 +825,6 @@ module.exports = {
       }
 
       // ---------- 14) Message templates (UPDATED: no `placeholders` column) ----------
-      // System templates (global) -> business_id = NULL
       const systemTemplates = [
         {
           business_id: null,
@@ -862,7 +872,6 @@ module.exports = {
         );
       }
 
-      // Business templates (scoped to Super Admin Business)
       const businessTemplates = [
         {
           business_id: superBusiness.id,
@@ -910,7 +919,7 @@ module.exports = {
         );
       }
 
-      // ---------- 14.5) Seed global placeholders (EN/AR) ----------
+      // ---------- 14.5) Seed global placeholders ----------
       const PLACEHOLDERS = [
         {
           code: "first_name",
@@ -1069,7 +1078,7 @@ module.exports = {
         );
       }
 
-      // ---------- 15) demo categories & customers (UNCHANGED) ----------
+      // ---------- 15) demo categories & customers ----------
       for (const name of ["Regular", "VIP", "Wholesale"]) {
         const [exists] = await sequelize.query(
           "SELECT id FROM `CustomerCategories` WHERE user_id = ? AND name = ? LIMIT 1",
@@ -1143,7 +1152,7 @@ module.exports = {
           type: "ONE_OFF",
           send_at_utc: in20m,
           cron_expr: null,
-          timezone: "Asia/Hebron",
+          timezone: DEFAULT_TZ,
           status: "ACTIVE",
           last_run_at: null,
           next_run_at: in20m,
@@ -1160,7 +1169,7 @@ module.exports = {
           type: "CRON",
           send_at_utc: null,
           cron_expr: "*/5 * * * *",
-          timezone: "Asia/Hebron",
+          timezone: DEFAULT_TZ,
           status: "ACTIVE",
           last_run_at: null,
           next_run_at: in5m,
@@ -1351,7 +1360,6 @@ module.exports = {
       const businessNamesEn = ["Welcome", "Follow Up"];
       const businessNamesAr = ["مرحباً", "متابعة"];
 
-      // Delete system templates (business_id IS NULL)
       await sequelize.query(
         `DELETE FROM \`MessageTemplates\`
          WHERE business_id IS NULL
@@ -1360,7 +1368,6 @@ module.exports = {
         { replacements: [...systemNamesEn, ...systemNamesAr], transaction: t }
       );
 
-      // Delete business templates for Super Admin Business
       await sequelize.query(
         `DELETE FROM \`MessageTemplates\`
          WHERE business_id IN (SELECT id FROM \`Businesses\` WHERE business_name = ?)
@@ -1378,7 +1385,6 @@ module.exports = {
         }
       );
 
-      // Remove business features row
       await sequelize.query(
         "DELETE FROM `BusinessFeatures` WHERE business_id IN (SELECT id FROM `Businesses` WHERE business_name = ?)",
         { replacements: ["Super Admin Business"], transaction: t }
@@ -1449,7 +1455,6 @@ module.exports = {
         )
         .catch(() => {});
 
-      // delete the current feature set (including UI gates)
       const ALL_FEATURE_CODES = [
         "scheduled_messages",
         "single_messages",
@@ -1482,7 +1487,6 @@ module.exports = {
         }
       );
 
-      // Remove seeded global placeholders
       const PH_CODES = [
         "first_name",
         "last_name",

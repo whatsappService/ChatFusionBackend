@@ -15,56 +15,72 @@ class User extends Model {
       UserPermission,
     } = this.sequelize.models;
 
-    this.addScope("withBusiness", {
-      include: [
-        {
-          model: Business,
-          as: "business",
-          include: [{ model: BusinessCategory, as: "category" }],
-        },
-      ],
-    });
-
-    this.addScope("withUserFeatures", {
-      include: [
-        {
-          model: Feature,
-          as: "features",
-          attributes: ["id", "code", "name", "description"],
-          through: {
-            model: UserFeature,
-            attributes: ["enabled", "meta_json", "createdAt", "updatedAt"],
+    // Always safe to call repeatedly thanks to { override: true }
+    this.addScope(
+      "withBusiness",
+      {
+        include: [
+          {
+            model: Business,
+            as: "business",
+            // No attributes restriction so fields like business.timezone are available
+            include: [{ model: BusinessCategory, as: "category" }],
           },
-        },
-      ],
-    });
+        ],
+      },
+      { override: true }
+    );
 
-    this.addScope("withPackages", {
-      include: [
-        {
-          model: BusinessPackage,
-          as: "assignedPackages",
-          required: false,
-          through: { attributes: [] },
-          include: [
-            {
-              model: BusinessPackagePermission,
-              as: "permissions",
-              required: false,
-              attributes: ["id", "perm"],
+    this.addScope(
+      "withUserFeatures",
+      {
+        include: [
+          {
+            model: Feature,
+            as: "features",
+            attributes: ["id", "code", "name", "description"],
+            through: {
+              model: UserFeature,
+              attributes: ["enabled", "meta_json", "createdAt", "updatedAt"],
             },
-          ],
-        },
-      ],
-    });
+          },
+        ],
+      },
+      { override: true }
+    );
 
-    this.addScope("withPermissionOverrides", {
-      include: [{ model: UserPermission, as: "permissionOverrides" }],
-    });
+    this.addScope(
+      "withPackages",
+      {
+        include: [
+          {
+            model: BusinessPackage,
+            as: "assignedPackages",
+            required: false,
+            through: { attributes: [] },
+            include: [
+              {
+                model: BusinessPackagePermission,
+                as: "permissions",
+                required: false,
+                attributes: ["id", "perm"],
+              },
+            ],
+          },
+        ],
+      },
+      { override: true }
+    );
+
+    this.addScope(
+      "withPermissionOverrides",
+      { include: [{ model: UserPermission, as: "permissionOverrides" }] },
+      { override: true }
+    );
   }
 
   static async findWithFeaturesByPk(id) {
-    if (!this._scopes || !this._scopes.withBusiness) this.initScopes();
+    this.initScopes?.(); // idempotent
     return this.scope(
       "withBusiness",
       "withUserFeatures",
@@ -83,7 +99,6 @@ class User extends Model {
     return Object.fromEntries(list.map((f) => [f.code, f]));
   }
 
-  // effective features (enabled + meta_json precedence: user -> business -> any package)
   async getEffectiveFeatures() {
     const rows = await sequelize.query(
       `
@@ -141,12 +156,6 @@ class User extends Model {
   }
 
   // ---------- PERMISSIONS ----------
-  /**
-   * Effective permissions:
-   *   ALLOW = union(packages for same business ∪ user-overrides(ALLOW))
-   *   DENY  = subtract user-overrides(DENY)
-   *   Wildcard '*' in ALLOW → superuser (returns ['*'])
-   */
   async getEffectivePermissions() {
     const rows = await sequelize.query(
       `
@@ -188,12 +197,9 @@ class User extends Model {
       }
     }
 
-    // wildcard means full access
-    if (allow.has("*")) return ["*"];
+    if (allow.has("*")) return ["*"]; // wildcard
 
-    // subtract denies
     for (const d of deny) allow.delete(d);
-
     return Array.from(allow).sort();
   }
 
@@ -210,6 +216,9 @@ User.init(
     email_address: { type: DataTypes.STRING, allowNull: false, unique: true },
     phone_number: { type: DataTypes.STRING, allowNull: false, unique: true },
     password: { type: DataTypes.STRING, allowNull: false },
+
+    // NEW: IANA timezone saved on the user
+    timezone: { type: DataTypes.STRING(64), allowNull: true },
 
     is_active: {
       type: DataTypes.BOOLEAN,

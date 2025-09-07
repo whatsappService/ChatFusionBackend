@@ -9,8 +9,12 @@ module.exports = {
       business_name: { type: Sequelize.STRING, allowNull: false },
       business_phone_number: { type: Sequelize.STRING, allowNull: false },
       email: { type: Sequelize.STRING, allowNull: true },
-      is_active: { type: Sequelize.BOOLEAN, defaultValue: true },
       api_key: { type: DataTypes.STRING, allowNull: true },
+
+      // ✅ Fallback timezone for the whole business (optional per-user override)
+      default_timezone: { type: Sequelize.STRING(64), allowNull: true },
+
+      is_active: { type: Sequelize.BOOLEAN, defaultValue: true },
       is_deleted: { type: Sequelize.BOOLEAN, defaultValue: false },
       category_id: {
         type: Sequelize.INTEGER,
@@ -30,6 +34,11 @@ module.exports = {
           "CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"
         ),
       },
+    });
+
+    // (optional) index for lookups or reporting
+    await q.addIndex("Businesses", ["default_timezone"], {
+      name: "biz_default_timezone",
     });
   },
   down: async (q) => {

@@ -14,7 +14,6 @@ class Business extends Model {
       BusinessPackagePermission,
     } = this.sequelize.models;
 
-    // Existing: load business-level feature toggles
     this.addScope("withFeatures", {
       include: [
         { model: BusinessCategory, as: "category" },
@@ -30,7 +29,6 @@ class Business extends Model {
       ],
     });
 
-    // New: load business packages with their feature rules + permissions
     this.addScope("withPackages", {
       include: [
         { model: BusinessCategory, as: "category" },
@@ -62,7 +60,6 @@ class Business extends Model {
       ],
     });
 
-    // Convenience: everything
     this.addScope("withAll", {
       include: [
         { model: BusinessCategory, as: "category" },
@@ -109,13 +106,11 @@ class Business extends Model {
     return this.scope("withFeatures").findByPk(id);
   }
 
-  // Optional convenience
   static async findWithAllByPk(id) {
     if (!this._scopes || !this._scopes.withAll) this.initScopes();
     return this.scope("withAll").findByPk(id);
   }
 
-  // Map business-level toggles: { [code]: { enabled, meta_json } }
   featureMap() {
     const list = (this.get("features") || []).map((f) => ({
       code: f.code,
@@ -133,7 +128,6 @@ class Business extends Model {
     );
   }
 
-  // Optional helper: summarize packages with their features & permissions
   packagesSummary() {
     const pkgs = this.get("packages") || [];
     return pkgs.map((p) => ({
@@ -159,6 +153,10 @@ Business.init(
     business_phone_number: { type: DataTypes.STRING, allowNull: false },
     email: { type: DataTypes.STRING, allowNull: true },
     api_key: { type: DataTypes.STRING, allowNull: true },
+
+    // ✅ fallback only (users can override with their own timezone)
+    default_timezone: { type: DataTypes.STRING(64), allowNull: true },
+
     is_active: { type: DataTypes.BOOLEAN, defaultValue: true },
     is_deleted: { type: DataTypes.BOOLEAN, defaultValue: false },
     category_id: {

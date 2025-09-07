@@ -1,237 +1,219 @@
 "use strict";
 
 const { Op } = require("sequelize");
-const axios = require("axios");
-const parser = require("cron-parser"); // npm i cron-parser
-const { v4: uuidv4 } = require("uuid"); // npm i uuid
 const path = require("path");
-const url = require("url");
+const fs = require("fs").promises;
+const { v4: uuidv4 } = require("uuid");
+const cronParser = require("cron-parser");
+const ScheduledMessage = require("../models/scheduledMessage");
+const { isValidIana, toLocalISO } = require("../utils/timezone");
 
-const { ScheduledMessage } = require("../models/associations");
-const messageService = require("./messageService");
+const UPLOAD_DIR = path.join(process.cwd(), "uploads", "schedules");
 
-/** Replace {key} in text using vars[key.toLowerCase()] */
-function replacePlaceholders(text, vars = {}) {
-  if (!text) return text;
-  return text.replace(/\{\s*(\w+)\s*\}/g, (_, k) => {
-    const v = vars[k.toLowerCase()];
-    return v != null ? String(v) : `{${k}}`;
-  });
+async function ensureDir() {
+  await fs.mkdir(UPLOAD_DIR, { recursive: true });
 }
 
-function computeNextRun(cronExpr, tz, fromDate = new Date()) {
-  if (!cronExpr) return null;
-  try {
-    const it = parser.parseExpression(cronExpr, { tz, currentDate: fromDate });
-    return it.next().toDate();
-  } catch {
-    return null;
+async function saveFiles(files) {
+  if (!Array.isArray(files) || files.length === 0) return null;
+  await ensureDir();
+  const urls = [];
+  for (const f of files) {
+    const ext = path.extname(f.originalname || "");
+    const filename = `${uuidv4()}${ext || ""}`;
+    const full = path.join(UPLOAD_DIR, filename);
+    await fs.writeFile(full, f.buffer);
+    urls.push(`/uploads/schedules/${filename}`);
   }
+  // store multiple as JSON string inside TEXT column
+  return JSON.stringify(urls);
 }
 
-function pick(obj, keys) {
-  return Object.fromEntries(
-    keys.filter((k) => k in obj).map((k) => [k, obj[k]])
-  );
+function computeNextRun({ type, cron_expr, timezone, send_at_utc, status }) {
+  if (status !== "ACTIVE") return null;
+
+  if (type === "ONE_OFF") {
+    const when = send_at_utc ? new Date(send_at_utc) : null;
+    return when && when > new Date() ? when : null;
+  }
+
+  if (type === "CRON" && cron_expr) {
+    try {
+      const it = cronParser.parseExpression(cron_expr, {
+        tz: timezone || "Asia/Hebron",
+      });
+      return it.next().toDate();
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
-/** Attempt to download media_url → returns [{ buffer, originalname, mimetype }] or [] */
-async function fetchMediaAsFiles(mediaUrl) {
-  if (!mediaUrl) return [];
-  try {
-    const resp = await axios.get(mediaUrl, { responseType: "arraybuffer" });
-    const parsed = url.parse(mediaUrl);
-    const filename = path.basename(parsed.pathname || "attachment");
-    const contentType =
-      resp.headers["content-type"] || "application/octet-stream";
-    return [
-      {
-        buffer: Buffer.from(resp.data),
-        originalname: filename,
-        mimetype: contentType,
-      },
-    ];
-  } catch {
-    // If media download fails, just send text
-    return [];
-  }
-}
-
-exports.createSchedule = async (business_id, created_by_user, body) => {
-  const data = pick(body, [
-    "to_number",
-    "text", // allow 'text' alias for body
-    "body",
-    "media_url",
-    "variables_json", // object map
-    "type", // "ONE_OFF" | "CRON"
-    "send_at_utc",
-    "cron_expr",
-    "timezone",
-  ]);
-
-  const type = (data.type || "ONE_OFF").toUpperCase();
-  if (!["ONE_OFF", "CRON"].includes(type)) {
-    const e = new Error("type must be ONE_OFF or CRON");
-    e.status = 400;
-    throw e;
-  }
-
-  const to_number = data.to_number || body.recipient; // accept 'recipient' alias
-  if (!to_number) {
-    const e = new Error("to_number (recipient) is required");
-    e.status = 400;
-    throw e;
-  }
-
-  const timezone = data.timezone || "Asia/Hebron";
-  const textBody = data.body ?? data.text ?? "";
-
-  const sendAt =
-    type === "ONE_OFF"
-      ? data.send_at_utc
-        ? new Date(data.send_at_utc)
-        : null
-      : null;
-
-  const nextRun =
-    type === "CRON" ? computeNextRun(data.cron_expr, timezone) : sendAt;
-
-  const row = await ScheduledMessage.create({
-    id: uuidv4(),
-    business_id,
-    created_by_user: created_by_user || null,
+exports.createSchedule = async (businessId, userId, body = {}, files = []) => {
+  const {
     to_number,
-    body: textBody,
-    media_url: data.media_url || null,
-    variables_json:
-      typeof data.variables_json === "object" ? data.variables_json : null,
+    body: msgBody = null,
     type,
-    send_at_utc: sendAt,
-    cron_expr: type === "CRON" ? data.cron_expr : null,
-    timezone,
-    status: "ACTIVE",
-    last_run_at: null,
-    next_run_at: nextRun,
-    max_attempts: 3,
-  });
+    send_at_utc = null,
+    cron_expr = null,
+    timezone = "Asia/Hebron",
+    status = "ACTIVE",
+    variables_json = null,
+  } = body;
 
-  return row;
+  if (!to_number) throw new Error("to_number is required");
+  if (!["ONE_OFF", "CRON"].includes(type)) throw new Error("Invalid type");
+  if (type === "ONE_OFF" && !send_at_utc)
+    throw new Error("send_at_utc is required for ONE_OFF");
+  if (type === "CRON" && !cron_expr)
+    throw new Error("cron_expr is required for CRON");
+
+  const media_url = await saveFiles(files);
+
+  const payload = {
+    id: uuidv4(),
+    business_id: businessId,
+    created_by_user: userId ?? null,
+    to_number: String(to_number).trim(),
+    body: msgBody,
+    media_url,
+    variables_json: variables_json ?? null,
+    type,
+    send_at_utc: send_at_utc ? new Date(send_at_utc) : null,
+    cron_expr,
+    timezone,
+    status,
+    last_run_at: null,
+    next_run_at: null,
+  };
+
+  payload.next_run_at = computeNextRun(payload);
+
+  const row = await ScheduledMessage.create(payload);
+  return row.toJSON();
 };
 
-exports.listSchedules = async (business_id, q = {}) => {
-  const page = Math.max(0, Number(q.page || 0));
-  const limit = Math.min(Math.max(1, Number(q.limit || 20)), 100);
+function withLocalFields(row, tz) {
+  const js = row.toJSON ? row.toJSON() : row;
+  if (!tz || !isValidIana(tz)) return js;
+  return {
+    ...js,
+    next_run_local: js.next_run_at
+      ? toLocalISO(new Date(js.next_run_at), tz)
+      : null,
+    last_run_local: js.last_run_at
+      ? toLocalISO(new Date(js.last_run_at), tz)
+      : null,
+    send_at_local:
+      js.type === "ONE_OFF" && js.send_at_utc
+        ? toLocalISO(new Date(js.send_at_utc), tz)
+        : null,
+  };
+}
 
-  const where = { business_id };
+exports.listSchedules = async (businessId, query = {}) => {
+  const page = Number(query.page ?? 0);
+  const limit = Math.min(200, Number(query.limit ?? 20));
+  const q = (query.q || "").trim();
+  const type = query.type || "";
+  const status = query.status || "";
+  const order = query.order || "updatedAt";
+  const direction =
+    (query.direction || "DESC").toUpperCase() === "ASC" ? "ASC" : "DESC";
+  const tz =
+    query.timezone && isValidIana(query.timezone) ? query.timezone : null;
 
-  if (q.type) where.type = q.type.toUpperCase(); // ONE_OFF|CRON
-  if (q.status) where.status = q.status.toUpperCase(); // ACTIVE|PAUSED|CANCELLED
-
-  if (q.from || q.to) {
-    where.createdAt = {};
-    if (q.from) where.createdAt[Op.gte] = new Date(q.from);
-    if (q.to) where.createdAt[Op.lte] = new Date(q.to);
+  const where = { business_id: businessId };
+  if (q) {
+    where[Op.or] = [
+      { to_number: { [Op.like]: `%${q}%` } },
+      { body: { [Op.like]: `%${q}%` } },
+    ];
   }
+  if (type) where.type = type;
+  if (status) where.status = status;
 
   const { rows, count } = await ScheduledMessage.findAndCountAll({
     where,
-    offset: page * limit,
     limit,
-    order: [["createdAt", "DESC"]],
+    offset: page * limit,
+    order: [[order, direction]],
   });
 
-  return { items: rows, total: count, page, limit };
+  const schedules = rows.map((r) => (tz ? withLocalFields(r, tz) : r.toJSON()));
+  return { schedules, total: count, page, limit };
 };
 
-exports.getSchedule = async (business_id, id) => {
-  const row = await ScheduledMessage.findOne({ where: { id, business_id } });
-  if (!row) {
-    const e = new Error("Schedule not found");
-    e.status = 404;
-    throw e;
-  }
-  return row;
+exports.getSchedule = async (businessId, id, tz) => {
+  const row = await ScheduledMessage.findByPk(id);
+  if (!row || row.business_id !== businessId)
+    throw new Error("Schedule not found");
+  return tz && isValidIana(tz) ? withLocalFields(row, tz) : row.toJSON();
 };
 
-exports.updateSchedule = async (business_id, id, patch) => {
-  const row = await this.getSchedule(business_id, id);
+exports.updateSchedule = async (businessId, id, body = {}, files = []) => {
+  const row = await ScheduledMessage.findByPk(id);
+  if (!row || row.business_id !== businessId)
+    throw new Error("Schedule not found");
 
-  const data = pick(patch, [
-    "to_number",
-    "body",
-    "text", // alias to update body
-    "media_url",
-    "variables_json",
-    "type",
+  const patch = {};
+  const setIf = (k, v) => {
+    if (v !== undefined) patch[k] = v;
+  };
+
+  setIf("to_number", body.to_number?.trim());
+  setIf("body", body.body);
+  setIf("variables_json", body.variables_json ?? undefined);
+  setIf("type", body.type);
+  setIf(
     "send_at_utc",
-    "cron_expr",
-    "timezone",
-    "status",
-    "max_attempts",
-  ]);
+    body.send_at_utc ? new Date(body.send_at_utc) : body.send_at_utc
+  );
+  setIf("cron_expr", body.cron_expr);
+  setIf("timezone", body.timezone);
+  setIf("status", body.status);
 
-  if ("to_number" in data) row.to_number = data.to_number;
-  if ("body" in data || "text" in data)
-    row.body = data.body ?? data.text ?? row.body;
-  if ("media_url" in data) row.media_url = data.media_url;
-  if ("variables_json" in data && typeof data.variables_json === "object")
-    row.variables_json = data.variables_json;
-  if ("max_attempts" in data)
-    row.max_attempts = Number(data.max_attempts) || row.max_attempts;
-
-  if ("type" in data) {
-    const t = (data.type || "").toUpperCase();
-    if (!["ONE_OFF", "CRON"].includes(t)) {
-      const e = new Error("type must be ONE_OFF or CRON");
-      e.status = 400;
-      throw e;
-    }
-    row.type = t;
+  if (Array.isArray(files) && files.length) {
+    patch.media_url = await saveFiles(files);
   }
 
-  if ("status" in data) {
-    const s = (data.status || "").toUpperCase();
-    if (!["ACTIVE", "PAUSED", "CANCELLED"].includes(s)) {
-      const e = new Error("status must be ACTIVE, PAUSED, or CANCELLED");
-      e.status = 400;
-      throw e;
-    }
-    row.status = s;
-  }
+  patch.next_run_at = computeNextRun({
+    type: patch.type ?? row.type,
+    cron_expr: patch.cron_expr ?? row.cron_expr,
+    timezone: patch.timezone ?? row.timezone,
+    send_at_utc: patch.send_at_utc ?? row.send_at_utc,
+    status: patch.status ?? row.status,
+  });
 
-  if ("send_at_utc" in data)
-    row.send_at_utc = data.send_at_utc ? new Date(data.send_at_utc) : null;
-  if ("cron_expr" in data) row.cron_expr = data.cron_expr || null;
-  if ("timezone" in data) row.timezone = data.timezone || row.timezone;
-
-  // recompute next_run_at
-  row.next_run_at =
-    row.type === "CRON"
-      ? computeNextRun(row.cron_expr, row.timezone)
-      : row.send_at_utc || null;
-
-  await row.save();
-  return row;
+  await row.update(patch);
+  return row.toJSON();
 };
 
-exports.setStatus = async (business_id, id, status) => {
-  const row = await this.getSchedule(business_id, id);
-  const s = (status || "").toUpperCase();
-  if (!["ACTIVE", "PAUSED", "CANCELLED"].includes(s)) {
-    const e = new Error("status must be ACTIVE, PAUSED, or CANCELLED");
-    e.status = 400;
-    throw e;
+exports.setStatus = async (businessId, id, newStatus) => {
+  const row = await ScheduledMessage.findByPk(id);
+  if (!row || row.business_id !== businessId)
+    throw new Error("Schedule not found");
+  if (!["ACTIVE", "PAUSED", "CANCELLED"].includes(newStatus)) {
+    throw new Error("Invalid status");
   }
-  row.status = s;
-  await row.save();
-  return { ok: true, id: row.id, status: row.status };
+  const next_run_at = computeNextRun({
+    type: row.type,
+    cron_expr: row.cron_expr,
+    timezone: row.timezone,
+    send_at_utc: row.send_at_utc,
+    status: newStatus,
+  });
+  await row.update({ status: newStatus, next_run_at });
+  return row.toJSON();
 };
 
-exports.deleteSchedule = async (business_id, id) => {
-  const row = await this.getSchedule(business_id, id);
+exports.deleteSchedule = async (businessId, id) => {
+  const row = await ScheduledMessage.findByPk(id);
+  if (!row || row.business_id !== businessId)
+    throw new Error("Schedule not found");
   await row.destroy();
-  return { ok: true };
+  return { message: "Schedule deleted successfully" };
 };
 
 exports.previewNextRuns = async (
@@ -240,41 +222,38 @@ exports.previewNextRuns = async (
   count = 5,
   from
 ) => {
-  if (!cron_expr) {
-    const e = new Error("cron_expr is required");
-    e.status = 400;
-    throw e;
+  if (!cron_expr) throw new Error("cron_expr is required");
+  const results = [];
+  const opts = { tz: timezone };
+  if (from) opts.currentDate = new Date(from);
+  const it = cronParser.parseExpression(cron_expr, opts);
+  const n = Math.max(1, Math.min(50, Number(count) || 5));
+  for (let i = 0; i < n; i++) {
+    results.push(it.next().toDate().toISOString());
   }
-  const currentDate = from ? new Date(from) : new Date();
-  const out = [];
-  const it = parser.parseExpression(cron_expr, { tz: timezone, currentDate });
-  for (let i = 0; i < Number(count || 5); i++) out.push(it.next().toDate());
-  return out;
+  return results;
 };
 
-/** Run the schedule immediately (text + optional media_url) */
-exports.runNow = async (business_id, id) => {
-  const row = await this.getSchedule(business_id, id);
-  if (row.status !== "ACTIVE") {
-    return { ok: false, message: "Schedule is not ACTIVE" };
+exports.runNow = async (businessId, id) => {
+  const row = await ScheduledMessage.findByPk(id);
+  if (!row || row.business_id !== businessId)
+    throw new Error("Schedule not found");
+
+  const now = new Date();
+  const patch = { last_run_at: now };
+
+  if (row.type === "CRON") {
+    patch.next_run_at = computeNextRun({
+      type: "CRON",
+      cron_expr: row.cron_expr,
+      timezone: row.timezone,
+      status: row.status,
+    });
+  } else {
+    patch.next_run_at = null; // one-off—no further runs
   }
 
-  const vars = row.variables_json || {};
-  const text = replacePlaceholders(row.body || "", vars);
-  const files = await fetchMediaAsFiles(row.media_url);
-
-  // ✅ Enforce/record usage by passing userId + default period ("month")
-  const result = await messageService.sendSingleMessage(
-    business_id,
-    row.to_number,
-    [text].filter(Boolean),
-    files,
-    { userId: row.created_by_user || null, period: "month" }
-  );
-
-  row.last_run_at = new Date();
-  await row.save();
-
-  // If sending failed (including quota block), surface ok=false
-  return { ok: !!result.success, result };
+  await row.update(patch);
+  // enqueue actual send here if you have a worker/queue
+  return row.toJSON();
 };

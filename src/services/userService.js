@@ -4,7 +4,8 @@
 const bcrypt = require("bcryptjs");
 const { User } = require("../models/associations");
 const { hashPassword } = require("../utils/hashUtil");
-const BusinessPackageService = require("./BusinessPackageService"); // <-- added
+const BusinessPackageService = require("./BusinessPackageService");
+const { isValidIana } = require("../utils/timezone"); // timezone utils
 
 /**
  * Normalize/shape the user to always include:
@@ -12,16 +13,27 @@ const BusinessPackageService = require("./BusinessPackageService"); // <-- added
  *   - package_name : string ("Custom" if none/multiple/overrides)
  *   - is_custom    : boolean
  *   - business_name: convenience field (maps Business.name/business_name)
+ *   - timezone     : IANA timezone (user.timezone → business.timezone → fallback)
  */
 function shapeUserForResponse(user) {
   const u =
     typeof user.get === "function" ? user.get({ plain: true }) : { ...user };
 
-  // --- business_name convenience ---
+  // business_name convenience
   const bName =
     u?.business?.business_name || u?.business?.name || u?.business_name || null;
 
-  // --- packages may be aliased differently across projects ---
+  // choose a timezone to expose (user → business → default)
+  const DEFAULT_TZ = process.env.SERVER_DEFAULT_TZ || "Asia/Hebron";
+  const tzFromUser = typeof u?.timezone === "string" ? u.timezone : null;
+  const tzFromBiz =
+    typeof u?.business?.timezone === "string" ? u.business.timezone : null;
+  const timezone =
+    (tzFromUser && isValidIana(tzFromUser) && tzFromUser) ||
+    (tzFromBiz && isValidIana(tzFromBiz) && tzFromBiz) ||
+    DEFAULT_TZ;
+
+  // packages may be aliased differently across projects
   const assigned =
     (Array.isArray(u.assignedPackages) && u.assignedPackages) ||
     (Array.isArray(u.packages) && u.packages) ||
@@ -32,9 +44,7 @@ function shapeUserForResponse(user) {
 
   // choose package: default if set & found; otherwise single; otherwise none
   let chosen = null;
-  if (u.default_package_id) {
-    chosen = byId(u.default_package_id) || null;
-  }
+  if (u.default_package_id) chosen = byId(u.default_package_id) || null;
   if (!chosen && assigned.length === 1) chosen = assigned[0];
 
   // detect overrides -> custom
@@ -44,7 +54,6 @@ function shapeUserForResponse(user) {
   const featureList = Array.isArray(u.features) ? u.features : [];
   const hasFeatureOverrides = featureList.some((f) => {
     const uf = f?.UserFeature;
-    // treat *any* stored value as an override (even "false" or 0)
     return !!(
       uf &&
       (uf.enabled !== null || uf.limit_value !== null || uf.meta_json !== null)
@@ -72,6 +81,7 @@ function shapeUserForResponse(user) {
     package: pkg,
     package_name,
     is_custom,
+    timezone,
   };
 }
 
@@ -99,7 +109,7 @@ async function attachEffectiveAccess(shapedUser, providedBusinessId) {
       : [];
     const featuresMap = eff?.featuresMap || {};
     const permissions = Array.isArray(eff?.permissions) ? eff.permissions : [];
-    // Adopt canonical package fields so “Custom/Admin” is consistent everywhere
+
     const pkgFields = {
       package: eff?.package || shapedUser.package,
       package_name:
@@ -134,8 +144,7 @@ async function attachEffectiveAccess(shapedUser, providedBusinessId) {
 
 /** ---------- LIST ALL (enriched) ---------- */
 exports.getAllUsers = async ({ businessId } = {}) => {
-  if (!User._scopes || !User._scopes.withBusiness) User.initScopes?.();
-
+  User.initScopes?.(); // idempotent
   const users = await User.scope(
     "withBusiness",
     "withPackages",
@@ -145,17 +154,14 @@ exports.getAllUsers = async ({ businessId } = {}) => {
     ...(businessId ? { where: { business_id: businessId } } : {}),
     order: [["createdAt", "DESC"]],
   });
-
-  // For list endpoints we keep it light (no effective access to avoid N+1).
   return users.map(shapeUserForResponse);
 };
 
 /** ---------- GET BY ID (enriched + EFFECTIVE ACCESS) ---------- */
 exports.getUserById = async (id, { businessId } = {}) => {
-  if (!User._scopes || !User._scopes.withBusiness) User.initScopes?.();
+  User.initScopes?.(); // idempotent
 
   const where = businessId ? { id, business_id: businessId } : { id };
-
   const user = await User.scope(
     "withBusiness",
     "withPackages",
@@ -165,17 +171,15 @@ exports.getUserById = async (id, { businessId } = {}) => {
 
   if (!user) return null;
 
-  // shape core fields (business_name, package_name/is_custom, etc.)
   const shaped = shapeUserForResponse(user);
-
-  // attach EFFECTIVE features & permissions (expanded, wildcard-aware)
-  const withAccess = await attachEffectiveAccess(shaped, businessId);
-
-  return withAccess;
+  return await attachEffectiveAccess(shaped, businessId);
 };
 
 /** ---------- CREATE / UPDATE / DELETE ---------- */
 exports.createUser = async (data) => {
+  // Accept timezone if valid; otherwise drop it (avoid bad values)
+  if (data?.timezone && !isValidIana(data.timezone)) delete data.timezone;
+
   data.password = await hashPassword(data.password);
   const user = await User.create(data);
   return await exports.getUserById(user.id, { businessId: user.business_id });
@@ -186,10 +190,16 @@ exports.updateUser = async (id, data, { businessId } = {}) => {
   const user = await User.findOne({ where });
   if (!user) throw new Error("User not found");
 
+  // Normalize timezone if present
+  if (Object.prototype.hasOwnProperty.call(data, "timezone")) {
+    if (!data.timezone || !isValidIana(data.timezone)) {
+      delete data.timezone; // ignore invalid
+    }
+  }
+
   if (data.password) data.password = await hashPassword(data.password);
   await user.update(data);
 
-  // Return the same enriched payload as getUserById (including features/permissions)
   return await exports.getUserById(user.id, { businessId: user.business_id });
 };
 
@@ -204,19 +214,32 @@ exports.deleteUser = async (id) => {
 exports.updateProfile = async (userId, userData) => {
   const user = await User.findByPk(userId);
   if (!user) throw new Error("User not found");
-  const updatable = ["full_name", "email_address", "phone_number"];
+
+  const updatable = ["full_name", "email_address", "phone_number", "timezone"];
+  const patch = {};
+
   for (const k of Object.keys(userData || {})) {
-    if (updatable.includes(k)) user[k] = userData[k];
+    if (k === "timezone") {
+      if (isValidIana(userData.timezone)) patch.timezone = userData.timezone;
+      continue;
+    }
+    if (updatable.includes(k)) patch[k] = userData[k];
   }
-  await user.save();
+
+  await user.update(patch);
   return await exports.getUserById(user.id, { businessId: user.business_id });
 };
 
 exports.changePassword = async (userId, oldPassword, newPassword) => {
   const user = await User.findByPk(userId);
   if (!user) throw new Error("User not found");
-  const isMatch = await bcrypt.compare(oldPassword, user.password);
+
+  const stored = user.password || user.password_hash;
+  const isMatch = stored
+    ? await bcrypt.compare(String(oldPassword || ""), String(stored))
+    : false;
   if (!isMatch) throw new Error("Old password is incorrect");
+
   user.password = await hashPassword(newPassword);
   await user.save();
 };
@@ -224,5 +247,17 @@ exports.changePassword = async (userId, oldPassword, newPassword) => {
 exports.verifyPassword = async (userId, password) => {
   const user = await User.findByPk(userId);
   if (!user) throw new Error("User not found");
-  return await bcrypt.compare(password, user.password);
+  const stored = user.password || user.password_hash;
+  return stored
+    ? await bcrypt.compare(String(password || ""), String(stored))
+    : false;
+};
+
+/** Optional: dedicated setter (e.g., /users/me/timezone) */
+exports.setUserTimezone = async (userId, timezone) => {
+  if (!isValidIana(timezone)) throw new Error("Invalid timezone");
+  const user = await User.findByPk(userId);
+  if (!user) throw new Error("User not found");
+  await user.update({ timezone });
+  return await exports.getUserById(user.id, { businessId: user.business_id });
 };

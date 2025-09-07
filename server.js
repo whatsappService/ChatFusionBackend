@@ -3,6 +3,7 @@ require("dotenv").config({
   path: `.env.${process.env.NODE_ENV || "development"}`,
 });
 
+const path = require("path");
 const express = require("express");
 const cors = require("cors");
 const morgan = require("morgan");
@@ -41,6 +42,15 @@ app.use(cors({ origin: corsOrigins, credentials: true }));
 /* ---------- Logging ---------- */
 app.use(morgan("combined", { stream: winston.stream }));
 
+/* ---------- Static uploads (serves /uploads/...) ---------- */
+app.use(
+  "/uploads",
+  express.static(path.join(process.cwd(), "uploads"), {
+    fallthrough: true,
+    maxAge: process.env.UPLOADS_MAX_AGE || "1h",
+  })
+);
+
 /* ---------- Rate limiting (toggle with RATE_LIMIT=off) ---------- */
 if (process.env.RATE_LIMIT !== "off") {
   app.use(
@@ -69,7 +79,12 @@ app.use((req, res) => {
 app.use((err, req, res, _next) => {
   const status = err.status || 500;
   const body = {
-    error: err.expose ? err.message : "Internal Server Error",
+    error:
+      process.env.NODE_ENV === "production"
+        ? err.expose
+          ? err.message
+          : "Internal Server Error"
+        : err.message || "Internal Server Error",
   };
 
   if (process.env.NODE_ENV !== "production") {
@@ -80,7 +95,6 @@ app.use((err, req, res, _next) => {
   try {
     winston.error(err);
   } catch {
-    // fall back to console if winston stream fails for any reason
     console.error(err);
   }
 
@@ -110,6 +124,21 @@ const shouldSync =
     process.exit(1);
   }
 })();
+
+/* ---------- Scheduler poller ---------- */
+const scheduleService = require("./src/services/scheduleService");
+const POLL_MS = Number(process.env.SCHEDULER_POLL_MS || 15000);
+
+setInterval(async () => {
+  try {
+    const { processed } = await scheduleService.dispatchDueSchedules(25);
+    if (processed) {
+      console.log(`[scheduler] processed ${processed} due schedule(s)`);
+    }
+  } catch (e) {
+    console.error("[scheduler] error:", e.message);
+  }
+}, POLL_MS);
 
 /* ---------- Global safety nets ---------- */
 process.on("unhandledRejection", (reason) => {

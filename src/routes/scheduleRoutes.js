@@ -1,3 +1,4 @@
+// src/routes/schedules.js
 "use strict";
 
 const express = require("express");
@@ -7,6 +8,7 @@ const authenticateUser = require("../middleware/authMiddleware");
 const requireFeature = require("../middleware/requireFeature");
 const requirePermission = require("../middleware/requirePermission");
 const scheduleController = require("../controllers/scheduleController");
+const scheduleService = require("../services/scheduleService"); // for /dispatch
 
 const router = express.Router();
 
@@ -96,12 +98,27 @@ router.post(
   scheduleController.previewNextRuns
 );
 
-/* Run now (optional stronger perm; keep update) */
+/* Run now */
 router.post(
   "/:id/run-now",
   ...base,
   requirePermission("schedules.update"),
   scheduleController.runNow
+);
+
+/* Optional: trigger dispatcher manually (admin-ish) */
+router.post(
+  "/dispatch",
+  ...base,
+  requirePermission("schedules.update"),
+  async (_req, res, next) => {
+    try {
+      const result = await scheduleService.dispatchDueSchedules(50);
+      res.json(result);
+    } catch (e) {
+      next(e);
+    }
+  }
 );
 
 module.exports = router;

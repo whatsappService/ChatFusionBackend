@@ -1,102 +1,196 @@
-// src/controllers/messageController.js
-"use strict";
+// src/services/messageService.js
+const axios = require("axios");
+const FormData = require("form-data");
+const { Op } = require("sequelize");
+const Business = require("../models/business");
+const Customer = require("../models/customer");
+const { log } = require("winston");
 
-const messageService = require("../services/messageService");
+/** Replace {key} in text using replacements[key.toLowerCase()] */
+function placeholderReplacer(text, replacements) {
+  return text.replace(/\{\s*(\w+)\s*\}/g, (_, key) => {
+    const val = replacements[key.toLowerCase()];
+    return val != null ? val : `{${key}}`;
+  });
+}
 
-/** POST /api/messages/single */
-exports.sendSingleMessage = async (req, res) => {
+/** Low‑level send: recipient phone, array of messages, optional files[] */
+async function doSend(apiKey, phone, messages, files = []) {
+  console.log("⏩ [Service] doSend()", {
+    phone,
+    messages,
+    filesCount: files.length,
+  });
+
+  const form = new FormData();
+  form.append("recipient", phone);
+  messages.forEach((msg) => form.append("contents", msg));
+  files.forEach((file) =>
+    form.append("files", file.buffer, { filename: file.originalname })
+  );
+
+  let resp;
   try {
-    const bizId = req.user?.business_id;
-    if (!bizId)
-      return res.status(401).json({ success: false, message: "Unauthorized" });
-
-    let { recipient, contents, period = "month" } = req.body || {};
-    if (!recipient)
-      return res
-        .status(400)
-        .json({ success: false, message: "Recipient required" });
-    if (!contents)
-      return res
-        .status(400)
-        .json({ success: false, message: "Message required" });
-
-    contents = Array.isArray(contents) ? contents : [contents];
-    const files = req.files || [];
-
-    const result = await messageService.sendSingleMessage(
-      bizId,
-      recipient,
-      contents,
-      files,
-      { userId: req.user.id, period } // ✅ pass user id for per-user caps
+    resp = await axios.post(
+      "https://chatfusion.murraltd.com/api/messaging/send",
+      form,
+      { headers: { "x-api-key": apiKey, ...form.getHeaders() } }
     );
-
-    if (!result.success) {
-      // use 403 if quota blocked, else 400
-      const status = result.quota?.reason ? 403 : 400;
-      return res.status(status).json(result);
-    }
-    return res.json(result);
   } catch (err) {
-    console.error("sendSingleMessage error:", err);
-    return res
-      .status(500)
-      .json({ success: false, message: err.message || "Server error" });
+    console.error("❌ [Service] doSend network/error:", err.message);
+    return { success: false, failed: [{ error: err.message }] };
   }
+
+  console.log("⬅️ [Service] ChatFusion response:", resp.data);
+  if (!resp.data.success || resp.data.failedCount > 0) {
+    return { success: false, failed: resp.data.data?.failedMessages || [] };
+  }
+  return { success: true, message: resp.data.message };
+}
+
+/** Send a single message with {name} & {business_name} substitution */
+exports.sendSingleMessage = async (businessId, recipient, contents, files) => {
+  console.log("=== [Service] sendSingleMessage START ===");
+  console.log("businessId:", businessId, "recipient:", recipient);
+
+  // 1) Load business
+  const biz = await Business.findByPk(businessId);
+  console.log("Loaded business:", biz?.id, biz?.name);
+  if (!biz?.api_key) throw new Error("API key not found");
+  const bizName = biz.name || biz.business_name || "";
+
+  // 2) Normalize phone
+  const phone = String(recipient).replace(/\D/g, "");
+  console.log("Normalized phone:", phone);
+  if (!/^\d+$/.test(phone)) throw new Error("Invalid phone format");
+
+  // 3) Normalize messages
+  const msgs = Array.isArray(contents) ? contents : [contents];
+  console.log("Messages array:", msgs);
+
+  // 4) Lookup customer name (exact → LIKE)
+  let cust = await Customer.findOne({ where: { whatsapp_number: phone } });
+  console.log("Exact lookup:", cust);
+  if (!cust) {
+    console.log("Exact lookup failed → trying LIKE");
+    cust = await Customer.findOne({
+      where: { whatsapp_number: { [Op.like]: `%${phone}` } },
+    });
+  }
+  console.log("Final customer record:", cust);
+  const customerName = cust?.profile_name || "";
+  console.log("Resolved customerName:", customerName);
+
+  // 5) Build placeholder map
+  const map = { name: customerName, business_name: bizName };
+  console.log("Placeholder map:", map);
+
+  // 6) Replace placeholders
+  const finalMsgs = msgs.map((m) => placeholderReplacer(m, map));
+  console.log("Final messages to send:", finalMsgs);
+
+  // 7) Send
+  const result = await doSend(biz.api_key, phone, finalMsgs, files);
+  console.log("sendSingleMessage result:", result);
+  console.log("=== [Service] sendSingleMessage END ===\n");
+  return result;
 };
 
-/** POST /api/messages/bulk */
-exports.sendBulkMessage = async (req, res) => {
-  try {
-    const bizId = req.user?.business_id;
-    if (!bizId)
-      return res.status(401).json({ success: false, message: "Unauthorized" });
+/** Send bulk messages with full logging */
+exports.sendBulkMessage = async (
+  businessId,
+  globalMessages,
+  recipientsData,
+  globalFiles = []
+) => {
+  // log.info("=== [Service] sendBulkMessage START ===");
+  console.log("=== [Service] sendBulkMessage START ===");
+  console.log("businessId:", businessId);
+  console.log("globalMessages:", globalMessages);
+  console.log("recipientsData:", recipientsData);
 
-    let { globalMessages, recipientsData, period = "month" } = req.body || {};
+  // 1) Load business
+  const biz = await Business.findByPk(businessId);
+  console.log("Loaded business:", biz?.id, biz?.name);
+  if (!biz?.api_key) throw new Error("API key not found");
+  const bizName = biz.name || biz.business_name || "";
 
-    if (typeof globalMessages === "string") {
-      try {
-        globalMessages = JSON.parse(globalMessages);
-      } catch {
-        return res
-          .status(400)
-          .json({ success: false, message: "Invalid JSON in globalMessages" });
+  // 2) Validate inputs
+  if (!Array.isArray(globalMessages))
+    throw new Error("globalMessages must be an array");
+  if (!Array.isArray(recipientsData))
+    throw new Error("recipientsData must be an array");
+
+  const failed = [];
+
+  // 3) Iterate recipients
+  for (const rd of recipientsData) {
+    console.log("\n→ [Service] Processing recipient data:", rd);
+    const { recipient, personalMessages = [], variableOverrides = {} } = rd;
+
+    try {
+      // a) Normalize phone
+      const phone = String(recipient).replace(/\D/g, "");
+      console.log("  phone:", phone);
+      if (!/^\d+$/.test(phone)) throw new Error("Invalid phone format");
+
+      // b) Lookup customer (exact → LIKE)
+      let cust = await Customer.findOne({ where: { whatsapp_number: phone } });
+      console.log("  exact lookup result:", cust);
+      if (!cust) {
+        console.log("  exact lookup failed → LIKE");
+        cust = await Customer.findOne({
+          where: { whatsapp_number: { [Op.like]: `%${phone}` } },
+        });
       }
-    }
-    if (typeof recipientsData === "string") {
-      try {
-        recipientsData = JSON.parse(recipientsData);
-      } catch {
-        return res
-          .status(400)
-          .json({ success: false, message: "Invalid JSON in recipientsData" });
+      console.log("  final customer record:", cust);
+      const customerName = cust?.profile_name || "";
+      console.log("  Resolved customerName:", customerName);
+
+      // c) Build placeholder map (+ overrides)
+      const map = {
+        name: customerName,
+        business_name: bizName,
+        ...Object.entries(variableOverrides).reduce((acc, [k, v]) => {
+          acc[k.toLowerCase()] = v;
+          return acc;
+        }, {}),
+      };
+      console.log("  Placeholder map:", map);
+
+      // d) Replace placeholders in global + personal
+      const finalMsgs = [
+        ...globalMessages.map((m) => placeholderReplacer(m, map)),
+        ...personalMessages.map((m) => placeholderReplacer(m, map)),
+      ];
+      console.log("  Final messages to send:", finalMsgs);
+
+      // e) Send via doSend
+      const sendResult = await doSend(
+        biz.api_key,
+        phone,
+        finalMsgs,
+        globalFiles
+      );
+      console.log("  doSend result:", sendResult);
+      if (!sendResult.success) {
+        failed.push({ recipient: phone, error: sendResult.failed });
       }
+    } catch (err) {
+      console.error("  Error processing recipient", recipient, err.message);
+      failed.push({ recipient, error: err.message });
     }
-    if (!Array.isArray(recipientsData) || recipientsData.length === 0) {
-      return res
-        .status(400)
-        .json({ success: false, message: "recipientsData is required" });
-    }
-
-    const globalFiles = req.files?.globalFiles || [];
-
-    const result = await messageService.sendBulkMessage(
-      bizId,
-      globalMessages,
-      recipientsData,
-      globalFiles,
-      { userId: req.user.id, period } // ✅ pass user id for per-user caps
-    );
-
-    if (!result.success) {
-      const status = result.quota?.reason ? 403 : 400;
-      return res.status(status).json(result);
-    }
-    return res.json(result);
-  } catch (err) {
-    console.error("sendBulkMessage error:", err);
-    return res
-      .status(500)
-      .json({ success: false, message: err.message || "Server error" });
   }
+
+  // 4) Build summary
+  const summary = {
+    success: failed.length === 0,
+    message:
+      failed.length === 0
+        ? "All bulk messages sent successfully"
+        : `${failed.length} bulk message(s) failed`,
+    failedMessages: failed,
+  };
+  console.log("=== [Service] sendBulkMessage END ===", summary, "\n");
+  return summary;
 };

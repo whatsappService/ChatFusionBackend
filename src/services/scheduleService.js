@@ -1,4 +1,3 @@
-// src/services/scheduleService.js
 "use strict";
 
 const { Op } = require("sequelize");
@@ -7,6 +6,7 @@ const fs = require("fs").promises;
 const { v4: uuidv4 } = require("uuid");
 const ScheduledMessage = require("../models/scheduledMessage");
 const { isValidIana, toLocalISO } = require("../utils/timezone");
+const messageService = require("./messageService"); // ⬅️ use your sender
 
 const UPLOAD_DIR = path.join(process.cwd(), "uploads", "schedules");
 const SERVER_TZ = process.env.SERVER_DEFAULT_TZ || "Asia/Hebron";
@@ -25,11 +25,7 @@ async function loadCronParser() {
     const mod = require("cron-parser");
     if (mod && typeof mod.parseExpression === "function")
       _parseCronFn = mod.parseExpression;
-    else if (
-      mod &&
-      mod.default &&
-      typeof mod.default.parseExpression === "function"
-    )
+    else if (mod?.default && typeof mod.default.parseExpression === "function")
       _parseCronFn = mod.default.parseExpression;
   } catch (_) {}
 
@@ -40,8 +36,7 @@ async function loadCronParser() {
       if (mod && typeof mod.parseExpression === "function")
         _parseCronFn = mod.parseExpression;
       else if (
-        mod &&
-        mod.default &&
+        mod?.default &&
         typeof mod.default.parseExpression === "function"
       )
         _parseCronFn = mod.default.parseExpression;
@@ -67,6 +62,49 @@ async function saveFiles(files) {
     urls.push(`/uploads/schedules/${filename}`);
   }
   return JSON.stringify(urls);
+}
+
+/** Load previously saved files back to buffers for sending */
+async function loadSavedFiles(media_url) {
+  const list = [];
+  if (!media_url) return list;
+
+  let arr;
+  try {
+    arr = JSON.parse(media_url);
+  } catch {
+    return list;
+  }
+  if (!Array.isArray(arr) || !arr.length) return list;
+
+  for (const p of arr) {
+    if (!p || typeof p !== "string") continue;
+    // stored like "/uploads/schedules/<name>"
+    const rel = p.replace(/^\/+/, ""); // strip leading slash
+    const full = path.join(process.cwd(), rel);
+    const name = path.basename(full);
+    try {
+      const buffer = await fs.readFile(full);
+      list.push({ buffer, originalname: name });
+    } catch {
+      // ignore missing files
+    }
+  }
+  return list;
+}
+
+/* ---------------- helpers: text templating ---------------- */
+/** Replace {key} in text from a plain object of variables (case-insensitive) */
+function applyVars(text, vars) {
+  if (!text || !vars || typeof vars !== "object") return text || "";
+  const dict = Object.keys(vars).reduce((acc, k) => {
+    acc[String(k).toLowerCase()] = vars[k];
+    return acc;
+  }, {});
+  return String(text).replace(/\{\s*([\w.]+)\s*\}/g, (_, rawKey) => {
+    const key = String(rawKey).toLowerCase();
+    return dict[key] != null ? String(dict[key]) : `{${rawKey}}`;
+  });
 }
 
 /* ---------------- helpers: schedule logic ---------------- */
@@ -115,6 +153,27 @@ function withLocalFields(row, tz) {
         ? toLocalISO(new Date(js.send_at_utc), tz)
         : null,
   };
+}
+
+/* ---------------- core sender for a single schedule ---------------- */
+/**
+ * Sends the message of a schedule row.
+ * - Uses variables_json for {placeholders} first
+ * - Lets messageService also substitute {name} and {business_name}
+ * - Reattaches any local media files saved during creation
+ */
+async function sendScheduleMessage(row) {
+  const files = await loadSavedFiles(row.media_url);
+  const body = applyVars(row.body || "", row.variables_json || null);
+  const contents = [body];
+
+  // messageService handles business lookup + {name}/{business_name} internally
+  return messageService.sendSingleMessage(
+    row.business_id,
+    row.to_number,
+    contents,
+    files
+  );
 }
 
 /* ---------------- create ---------------- */
@@ -310,12 +369,17 @@ exports.previewNextRuns = async (
   return results;
 };
 
-/* ---------------- run now ---------------- */
+/* ---------------- run now (send + advance) ---------------- */
 exports.runNow = async (businessId, id) => {
   const row = await ScheduledMessage.findByPk(id);
   if (!row || row.business_id !== businessId)
     throw new Error("Schedule not found");
+  if (row.status !== "ACTIVE") return row.toJSON();
 
+  // 1) Send
+  const result = await sendScheduleMessage(row);
+
+  // 2) Advance pointers regardless of send success (you can change policy)
   const now = new Date();
   const patch = { last_run_at: now };
 
@@ -328,9 +392,56 @@ exports.runNow = async (businessId, id) => {
     });
   } else {
     patch.next_run_at = null; // one-off—no further runs
+    // Optionally auto-cancel after run:
+    // patch.status = "CANCELLED";
   }
 
   await row.update(patch);
-  // enqueue actual send here if you have a worker/queue
-  return row.toJSON();
+  return { ...row.toJSON(), sendResult: result };
+};
+
+/* ---------------- dispatcher: scan & send due ---------------- */
+/**
+ * Process due schedules.
+ * - CRON: next_run_at <= now
+ * - ONE_OFF: (next_run_at <= now) OR (next_run_at IS NULL AND send_at_utc <= now AND last_run_at IS NULL)
+ * Note: This is a simple, single-process loop. For multi-process safety,
+ * add row-level locks/claims (e.g. a `locked_until` column) or run one worker.
+ */
+exports.dispatchDueSchedules = async (max = 25) => {
+  const now = new Date();
+
+  const where = {
+    status: "ACTIVE",
+    [Op.or]: [
+      // any due by next_run_at
+      { next_run_at: { [Op.lte]: now } },
+      // safety for one-offs created in the past without next_run_at set
+      {
+        [Op.and]: [
+          { type: "ONE_OFF" },
+          { next_run_at: { [Op.is]: null } },
+          { last_run_at: { [Op.is]: null } },
+          { send_at_utc: { [Op.lte]: now } },
+        ],
+      },
+    ],
+  };
+
+  const rows = await ScheduledMessage.findAll({
+    where,
+    order: [["next_run_at", "ASC"]],
+    limit: Math.max(1, Math.min(200, Number(max) || 25)),
+  });
+
+  const results = [];
+  for (const row of rows) {
+    try {
+      const r = await exports.runNow(row.business_id, row.id);
+      results.push({ id: row.id, ok: true, result: r.sendResult || null });
+    } catch (e) {
+      results.push({ id: row.id, ok: false, error: e.message });
+    }
+  }
+  return { processed: results.length, results };
 };

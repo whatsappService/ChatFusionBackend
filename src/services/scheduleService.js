@@ -7,7 +7,7 @@ const fs = require("fs").promises;
 const { v4: uuidv4 } = require("uuid");
 
 // IMPORTANT: match your actual filename/casing
-const ScheduledMessage = require("../models/ScheduledMessage"); // or "../models/scheduledMessage"
+const ScheduledMessage = require("../models/ScheduledMessage");
 const ScheduledMessageItem = require("../models/ScheduledMessageItem");
 const Customer = require("../models/customer");
 const MessageTemplate = require("../models/messageTemplate");
@@ -445,6 +445,109 @@ async function loadItemsForSchedule(id) {
   });
 }
 
+/* ---------------- bodies & attachments collectors ---------------- */
+function _normalizeAttachmentEntry(entry) {
+  if (!entry) return null;
+  if (typeof entry === "string") {
+    const url = entry;
+    const name = String(url).split("/").pop() || null;
+    return { url, name, mime_type: null, size_bytes: null };
+  }
+  if (typeof entry === "object") {
+    const url = entry.url || entry.href || entry.src || null;
+    if (!url) return null;
+    return {
+      url,
+      name: entry.name || (String(url).split("/").pop() || null),
+      mime_type: entry.mime_type || entry.type || null,
+      size_bytes:
+        entry.size_bytes != null
+          ? entry.size_bytes
+          : entry.size != null
+          ? entry.size
+          : null,
+    };
+  }
+  return null;
+}
+function _collectFromMediaFields(media_url, media_json) {
+  const out = [];
+  if (Array.isArray(media_json)) {
+    for (const m of media_json) {
+      const n = _normalizeAttachmentEntry(m);
+      if (n) out.push(n);
+    }
+  }
+  if (media_url) {
+    if (Array.isArray(media_url)) {
+      for (const u of media_url) {
+        const n = _normalizeAttachmentEntry(u);
+        if (n) out.push(n);
+      }
+    } else if (typeof media_url === "string") {
+      let parsed = null;
+      try {
+        const p = JSON.parse(media_url);
+        if (Array.isArray(p)) parsed = p;
+      } catch (_) {}
+      if (parsed) {
+        for (const u of parsed) {
+          const n = _normalizeAttachmentEntry(u);
+          if (n) out.push(n);
+        }
+      } else {
+        const n = _normalizeAttachmentEntry(media_url);
+        if (n) out.push(n);
+      }
+    }
+  }
+  // de-dupe by URL
+  const uniq = new Map();
+  for (const a of out) if (a?.url && !uniq.has(a.url)) uniq.set(a.url, a);
+  return Array.from(uniq.values());
+}
+function collectAttachmentsFromRowAndItems(row, items = []) {
+  const all = [];
+  for (const it of items) {
+    all.push(..._collectFromMediaFields(it.media_url, it.media_json));
+  }
+  all.push(..._collectFromMediaFields(row.media_url, row.media_json));
+
+  const uniq = new Map();
+  for (const a of all) if (a?.url && !uniq.has(a.url)) uniq.set(a.url, a);
+  return Array.from(uniq.values());
+}
+function collectBodiesFromRowAndItems(row, items = []) {
+  const bodies = [];
+
+  for (const it of items) {
+    if (it?.body && String(it.body).trim()) bodies.push(String(it.body));
+    if (Array.isArray(it?.messages_json)) {
+      for (const m of it.messages_json) {
+        if (typeof m === "string" && m.trim()) bodies.push(m);
+      }
+    }
+  }
+
+  if (row?.body && String(row.body).trim()) bodies.push(String(row.body));
+  if (Array.isArray(row?.messages_json)) {
+    for (const m of row.messages_json) {
+      if (typeof m === "string" && m.trim()) bodies.push(m);
+    }
+  }
+
+  // de-dupe, keep order
+  const seen = new Set();
+  const out = [];
+  for (const b of bodies) {
+    if (!seen.has(b)) {
+      seen.add(b);
+      out.push(b);
+    }
+  }
+  return out;
+}
+
 /* ---------------- core sender ---------------- */
 async function deliverItemsForBase(row, items, base, now = new Date()) {
   const dueItems = (items || []).filter((it) => {
@@ -753,7 +856,6 @@ exports.createSchedule = async (
   // Items (multi-message schedule)
   const normalizedItems = normalizeItemsInput(items ?? items_json);
   if (normalizedItems.length) {
-    // Attach per-item uploads via itemFilesByIndex (item_files_<index>)
     for (let i = 0; i < normalizedItems.length; i++) {
       if (!normalizedItems[i].id) {
         normalizedItems[i].id = uuidv4();
@@ -766,9 +868,9 @@ exports.createSchedule = async (
       }
       normalizedItems[i].scheduled_message_id = row.id;
     }
-    // Don't hide errors here — if something is wrong, surface it
-    await ScheduledMessageItem.bulkCreate(normalizedItems, { ignoreDuplicates: true });
-
+    await ScheduledMessageItem.bulkCreate(normalizedItems, {
+      ignoreDuplicates: true,
+    });
   }
 
   const savedItems = normalizedItems.length
@@ -790,7 +892,6 @@ exports.listSchedules = async (businessId, query = {}) => {
   const limit = Math.min(200, Math.max(1, Number(query.limit ?? 20)));
   const q = (query.q || "").trim();
   const type = query.type || "";
-  0;
   const status = query.status || "";
   const order = query.order || "updatedAt";
   const direction =
@@ -798,6 +899,7 @@ exports.listSchedules = async (businessId, query = {}) => {
   const tz =
     query.timezone && isValidIana(query.timezone) ? query.timezone : null;
 
+  // Whether to include items array verbatim
   const includeItems =
     String(query.include || "").toLowerCase() === "items" ||
     query.includeItems === "1" ||
@@ -821,45 +923,144 @@ exports.listSchedules = async (businessId, query = {}) => {
   });
 
   let schedules = rows.map((r) => (tz ? withLocalFields(r, tz) : r.toJSON()));
+  if (!schedules.length) {
+    return { schedules, total: count, page, limit, timezone: tz || undefined };
+  }
 
-  if (includeItems && schedules.length) {
-    const ids = schedules.map((s) => s.id);
-    const items = await ScheduledMessageItem.findAll({
-      where: { scheduled_message_id: { [Op.in]: ids } },
-      order: [
-        ["scheduled_message_id", "ASC"],
-        ["order_index", "ASC"],
-        ["createdAt", "ASC"],
+  // Load ALL child items to compute bodies & attachments
+  const ids = schedules.map((s) => s.id);
+  const items = await ScheduledMessageItem.findAll({
+    where: { scheduled_message_id: { [Op.in]: ids } },
+    attributes: [
+      "id",
+      "scheduled_message_id",
+      "order_index",
+      "enabled",
+      "template_id",
+      "body",
+      "messages_json",
+      "media_url",
+      "media_json",
+      "createdAt",
+    ],
+    order: [
+      ["scheduled_message_id", "ASC"],
+      ["order_index", "ASC"],
+      ["createdAt", "ASC"],
+    ],
+  });
+  const itemsByParent = new Map();
+  for (const it of items) {
+    const pid = it.scheduled_message_id;
+    if (!itemsByParent.has(pid)) itemsByParent.set(pid, []);
+    itemsByParent.get(pid).push(it.toJSON ? it.toJSON() : it);
+  }
+
+  // Collect templates we may need (when item/parent has template but no text)
+  const neededTplIds = new Set();
+  for (const s of schedules) {
+    const child = itemsByParent.get(s.id) || [];
+    if (child.length) {
+      for (const it of child) {
+        const hasText =
+          (typeof it.body === "string" && it.body.trim() !== "") ||
+          (Array.isArray(it.messages_json) && it.messages_json.length > 0);
+        if (!hasText && it.template_id != null)
+          neededTplIds.add(it.template_id);
+      }
+    } else {
+      const parentHasText =
+        (typeof s.body === "string" && s.body.trim() !== "") ||
+        (Array.isArray(s.messages_json) && s.messages_json.length > 0);
+      if (!parentHasText && s.template_id != null) {
+        neededTplIds.add(s.template_id);
+      }
+    }
+  }
+
+  // Bulk-load templates once
+  const tplMap = new Map();
+  if (neededTplIds.size) {
+    const tpls = await MessageTemplate.findAll({
+      where: { id: { [Op.in]: Array.from(neededTplIds) } },
+      attributes: [
+        "id",
+        "body",
+        "content",
+        "message",
+        "text",
+        "text_body",
+        "message_en",
+        "message_ar",
       ],
     });
-    const byParent = new Map();
-    for (const it of items) {
-      const pid = it.scheduled_message_id;
-      if (!byParent.has(pid)) byParent.set(pid, []);
-      byParent.get(pid).push(it.toJSON());
-    }
-    schedules = schedules.map((s) => ({
-      ...s,
-      items: byParent.get(s.id) || [],
-    }));
+    for (const t of tpls) tplMap.set(t.id, t.toJSON ? t.toJSON() : t);
   }
+
+  // Helpers to pull text from items/parent
+  const bodiesFromItem = (it) => {
+    const out = [];
+    if (Array.isArray(it.messages_json) && it.messages_json.length) {
+      for (const m of it.messages_json) {
+        if (typeof m === "string" && m.trim() !== "") out.push(m);
+      }
+    }
+    if (typeof it.body === "string" && it.body.trim() !== "") {
+      out.push(it.body);
+    }
+    if (!out.length && it.template_id != null) {
+      const tpl = tplMap.get(it.template_id);
+      const tb = pickTemplateBody(tpl);
+      if (typeof tb === "string" && tb.trim() !== "") out.push(tb);
+    }
+    return out;
+  };
+  const bodiesFromParent = (s) => {
+    const out = [];
+    if (Array.isArray(s.messages_json) && s.messages_json.length) {
+      for (const m of s.messages_json) {
+        if (typeof m === "string" && m.trim() !== "") out.push(m);
+      }
+    }
+    if (typeof s.body === "string" && s.body.trim() !== "") {
+      out.push(s.body);
+    }
+    if (!out.length && s.template_id != null) {
+      const tpl = tplMap.get(s.template_id);
+      const tb = pickTemplateBody(tpl);
+      if (typeof tb === "string" && tb.trim() !== "") out.push(tb);
+    }
+    return out;
+  };
+
+  // Build final schedules with message_bodies + attachments (+items if asked)
+  schedules = schedules.map((s) => {
+    const its = itemsByParent.get(s.id) || [];
+    const message_bodies = its.length
+      ? its
+          .filter((it) => it.enabled !== false)
+          .flatMap((it) => bodiesFromItem(it))
+      : bodiesFromParent(s);
+
+    const attachments = collectAttachmentsFromRowAndItems(s, its);
+
+    return includeItems
+      ? { ...s, items: its, message_bodies, attachments }
+      : { ...s, message_bodies, attachments };
+  });
 
   return { schedules, total: count, page, limit, timezone: tz || undefined };
 };
 
-/* ---------------- get ---------------- */ exports.getSchedule = async (
-  businessId,
-  id,
-  tz
-) => {
-  // Pull the schedule for this tenant, include items in a stable order
+/* ---------------- get ---------------- */
+exports.getSchedule = async (businessId, id, tz) => {
   const row = await ScheduledMessage.findOne({
     where: { id, business_id: businessId },
     include: [
       {
         model: ScheduledMessageItem,
         as: "items",
-        separate: true, // ensures order works reliably
+        separate: true,
         order: [
           ["order_index", "ASC"],
           ["createdAt", "ASC"],
@@ -874,24 +1075,28 @@ exports.listSchedules = async (businessId, query = {}) => {
     throw err;
   }
 
-  // Base JSON with optional local-time helpers
   const base = tz && isValidIana(tz) ? withLocalFields(row, tz) : row.toJSON();
 
-  // Use model helpers:
-  // - getAllMessageItems: returns included items if present, otherwise a single legacy step
-  // - getMediaItems: convenience list for UI previews
+  // normalized items array (child items or legacy fallback)
   const items =
     typeof row.getAllMessageItems === "function"
       ? row.getAllMessageItems({ includeLegacy: true })
       : base.items || [];
 
+  // bodies & attachments across items + parent
+  const message_bodies = collectBodiesFromRowAndItems(base, items);
+  const attachments = collectAttachmentsFromRowAndItems(base, items);
+
+  // keep old convenience ‘media’ for preview UIs
   const media =
     typeof row.getMediaItems === "function" ? row.getMediaItems() : [];
 
   return {
     ...base,
-    items, // normalized items array (child items or legacy fallback)
-    media, // convenience media list (for preview UIs)
+    items,
+    message_bodies,
+    attachments,
+    media,
   };
 };
 
@@ -1041,7 +1246,6 @@ exports.updateSchedule = async (
     // per-item files for replacement set
     for (let i = 0; i < toCreate.length; i++) {
       const bucket = itemFilesByIndex.get(i);
-      // clear media if asked
       if (toCreate[i].__remove_existing) {
         toCreate[i].media_url = null;
         toCreate[i].media_json = null;
@@ -1068,13 +1272,11 @@ exports.updateSchedule = async (
       for (let i = 0; i < upserts.length; i++) {
         const it = upserts[i];
 
-        // clear existing media if requested
         if (it.__remove_existing) {
           it.media_url = null;
           it.media_json = null;
         }
 
-        // apply uploaded files for this item index
         const bucket = itemFilesByIndex.get(i);
         if (Array.isArray(bucket) && bucket.length) {
           const urlsJson = await saveFiles(bucket);

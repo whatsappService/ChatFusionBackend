@@ -43,11 +43,20 @@ async function doSend(apiKey, phone, messages, files = []) {
       { headers: { "x-api-key": apiKey, ...form.getHeaders() } }
     );
     if (!resp.data?.success || resp.data?.failedCount > 0) {
-      return { success: false, failed: resp.data?.data?.failedMessages || [] };
+      const failed = resp.data?.data?.failedMessages || [];
+      return {
+        success: false,
+        message: resp.data?.message,
+        failedMessages: failed,
+      };
     }
-    return { success: true, message: resp.data?.message };
+    return { success: true, message: resp.data?.message, failedMessages: [] };
   } catch (err) {
-    return { success: false, failed: [{ error: err.message }] };
+    return {
+      success: false,
+      message: err.message,
+      failedMessages: [{ error: err.message }],
+    };
   }
 }
 
@@ -69,12 +78,50 @@ async function doSendBulk(apiKey, recipients, messages, files = []) {
     form.append("files", file.buffer, { filename: file.originalname })
   );
 
+  // helpers to keep logs safe & readable
+  const maskPhone = (p = "") => {
+    const s = String(p).replace(/\D/g, "");
+    return s.length <= 4
+      ? "****"
+      : `${"*".repeat(Math.max(0, s.length - 4))}${s.slice(-4)}`;
+  };
+  const briefRecipients = (arr = [], sample = 5) => {
+    const shown = arr.slice(0, sample).map(maskPhone);
+    const rest = arr.length - shown.length;
+    return rest > 0 ? `${shown.join(", ")} (+${rest} more)` : shown.join(", ");
+  };
+  const fileNames = (fs = []) => fs.map((f) => f?.originalname).filter(Boolean);
+
+  // request summary
+  console.log(
+    `[send-bulk] → POST /send-bulk  recipients=${recipients.length}  messages=${
+      (Array.isArray(messages) ? messages : [messages]).length
+    }  files=${fileNames(files).length}`
+  );
+  if (process.env.DEBUG?.toLowerCase() === "true") {
+    console.log(
+      `[send-bulk] sample recipients: ${briefRecipients(recipients)}`
+    );
+    if (fileNames(files).length)
+      console.log(`[send-bulk] files: ${fileNames(files).join(", ")}`);
+  }
+
   try {
     const resp = await axios.post(
       "https://chatfusion.murraltd.com/api/messaging/send-bulk",
       form,
       { headers: { "x-api-key": apiKey, ...form.getHeaders() } }
     );
+
+    // Log raw upstream result (compact)
+    console.log(
+      `[send-bulk] ← ${resp.status} ${resp.statusText}  success=${!!resp.data
+        ?.success}  failedCount=${resp.data?.failedCount ?? 0}`
+    );
+    if (process.env.DEBUG?.toLowerCase() === "true") {
+      // Safe deep log of response payload when DEBUG=true
+      console.dir({ data: resp.data }, { depth: null, maxArrayLength: 50 });
+    }
 
     // Normalize to a common shape
     const ok = !!resp.data?.success && !(resp.data?.failedCount > 0);
@@ -90,48 +137,41 @@ async function doSendBulk(apiKey, recipients, messages, files = []) {
       failedMessages: Array.isArray(failed) ? failed : [],
     };
   } catch (err) {
+    // Axios error logging with plenty of context
+    const status = err.response?.status;
+    const statusText = err.response?.statusText;
+    const data = err.response?.data;
+    console.error(
+      `[send-bulk] ✖ ERROR ${status ?? ""} ${statusText ?? ""} :: ${
+        err.message
+      }`
+    );
+    if (process.env.DEBUG?.toLowerCase() === "true") {
+      console.error("[send-bulk] upstream error body:");
+      console.dir(data, { depth: null, maxArrayLength: 200 });
+    }
+
     return {
       success: false,
       message: err.message,
       failedMessages: recipients.map((r) => ({
         recipient: r,
-        error: err.message,
+        error:
+          (Array.isArray(data?.failedMessages) &&
+            data.failedMessages.find((f) => f?.recipient === r)?.error) ||
+          data?.message ||
+          err.message,
       })),
     };
   }
 }
 
 /** Send a single message with {name} & {business_name} substitution */
-exports.sendSingleMessage = async (businessId, recipient, contents, files) => {
-  const biz = await Business.findByPk(businessId);
-  if (!biz?.api_key) throw new Error("API key not found");
-  const bizName = biz.name || biz.business_name || "";
-
-  const phone = String(recipient).replace(/\D/g, "");
-  if (!/^\d+$/.test(phone)) throw new Error("Invalid phone format");
-
-  const msgs = Array.isArray(contents) ? contents : [contents];
-
-  // Get a customer to fill {name}
-  let cust = await Customer.findOne({ where: { whatsapp_number: phone } });
-  if (!cust) {
-    cust = await Customer.findOne({
-      where: { whatsapp_number: { [Op.like]: `%${phone}` } },
-    });
-  }
-  const customerName = cust?.profile_name || "";
-
-  const map = { name: customerName, business_name: bizName };
-  const finalMsgs = msgs.map((m) => placeholderReplacer(m, map));
-
-  return doSend(biz.api_key, phone, finalMsgs, files);
-};
-
 /**
- * Bulk API with smart path:
- * - If NO per-recipient placeholders are present (only {business_name} / globals),
- *   use one **bulk** API call (doSendBulk).
- * - Otherwise, fall back to per-recipient sends with personalized replacements.
+ * Bulk API with smart path and automatic fallback:
+ * - If no per-recipient placeholders (only globals like {business_name}), try one **bulk** call.
+ * - If bulk fails (e.g., 404), FALL BACK to per-recipient sends automatically.
+ * - If per-recipient placeholders exist, use personalized loop immediately.
  *
  * @param {number|string} businessId
  * @param {string[]} globalMessages - array of message strings
@@ -159,8 +199,70 @@ exports.sendBulkMessage = async (
         (r.variableOverrides && Object.keys(r.variableOverrides).length)
     ) || msgs.some((m) => needsPerRecipient(m));
 
+  // Helper: personalized loop (used for both the personalized path and fallback)
+  const sendPersonalized = async (data) => {
+    const failed = [];
+    for (const rd of data) {
+      try {
+        const phone = String(rd.recipient).replace(/\D/g, "");
+        if (!/^\d+$/.test(phone)) throw new Error("Invalid phone format");
+
+        // lookup customer for {name}
+        let cust = await Customer.findOne({
+          where: { whatsapp_number: phone },
+        });
+        if (!cust) {
+          cust = await Customer.findOne({
+            where: { whatsapp_number: { [Op.like]: `%${phone}` } },
+          });
+        }
+        const customerName = cust?.profile_name || "";
+
+        const map = {
+          name: customerName,
+          business_name: bizName,
+          ...Object.entries(rd.variableOverrides || {}).reduce(
+            (acc, [k, v]) => {
+              acc[String(k).toLowerCase()] = v;
+              return acc;
+            },
+            {}
+          ),
+        };
+
+        const finalMsgs = [
+          ...msgs.map((m) => placeholderReplacer(m, map)),
+          ...(Array.isArray(rd.personalMessages)
+            ? rd.personalMessages.map((m) => placeholderReplacer(m, map))
+            : []),
+        ];
+
+        const r = await doSend(biz.api_key, phone, finalMsgs, globalFiles);
+        if (!r.success) {
+          // ✅ bugfix: use r.message/failedMessages instead of r.failed
+          failed.push({
+            recipient: phone,
+            error: r.message || "send failed",
+            details: r.failedMessages || [],
+          });
+        }
+      } catch (err) {
+        failed.push({ recipient: rd.recipient, error: err.message });
+      }
+    }
+
+    return {
+      success: failed.length === 0,
+      message:
+        failed.length === 0
+          ? "All messages sent successfully"
+          : `${failed.length} message(s) failed`,
+      failedMessages: failed,
+    };
+  };
+
+  // Try the single bulk call if safe to do so
   if (!anyPerRecipient) {
-    // Only globals → replace business_name once and hit bulk endpoint.
     const replaced = msgs.map((m) =>
       placeholderReplacer(m, { business_name: bizName })
     );
@@ -168,68 +270,41 @@ exports.sendBulkMessage = async (
       .map((r) => String(r.recipient || "").replace(/\D/g, ""))
       .filter((p) => /^\d+$/.test(p));
 
-    const bulk = await doSendBulk(biz.api_key, phones, replaced, globalFiles);
+    // Optional env flag to disable bulk entirely (useful while diagnosing)
+    const useBulk =
+      (process.env.CHATFUSION_USE_BULK || "true").toLowerCase() !== "false";
 
-    // Normalize result
-    return {
-      success: bulk.success,
-      message: bulk.message,
-      failedMessages: bulk.failedMessages || [],
-    };
-  }
-
-  // Personalized path
-  const failed = [];
-  for (const rd of recipientsData) {
-    try {
-      const phone = String(rd.recipient).replace(/\D/g, "");
-      if (!/^\d+$/.test(phone)) throw new Error("Invalid phone format");
-
-      // lookup customer for {name}
-      let cust = await Customer.findOne({ where: { whatsapp_number: phone } });
-      if (!cust) {
-        cust = await Customer.findOne({
-          where: { whatsapp_number: { [Op.like]: `%${phone}` } },
-        });
+    if (useBulk) {
+      const bulk = await doSendBulk(biz.api_key, phones, replaced, globalFiles);
+      if (bulk.success) {
+        return {
+          success: true,
+          message: bulk.message || "Bulk sent",
+          failedMessages: bulk.failedMessages || [],
+        };
       }
-      const customerName = cust?.profile_name || "";
 
-      const map = {
-        name: customerName,
-        business_name: bizName,
-        ...Object.entries(rd.variableOverrides || {}).reduce((acc, [k, v]) => {
-          acc[String(k).toLowerCase()] = v;
-          return acc;
-        }, {}),
-      };
-
-      const finalMsgs = [
-        ...msgs.map((m) => placeholderReplacer(m, map)),
-        ...(Array.isArray(rd.personalMessages)
-          ? rd.personalMessages.map((m) => placeholderReplacer(m, map))
-          : []),
-      ];
-
-      const r = await doSend(biz.api_key, phone, finalMsgs, globalFiles);
-      if (!r.success) failed.push({ recipient: phone, error: r.failed });
-    } catch (err) {
-      failed.push({ recipient: rd.recipient, error: err.message });
+      // 🔁 Fallback: if bulk API is missing/404 or otherwise fails, try personalized loop
+      console.warn(
+        "[send-bulk] bulk endpoint failed; falling back to per-recipient:",
+        bulk.message
+      );
+      const fallbackData = phones.map((p) => ({ recipient: p }));
+      return sendPersonalized(fallbackData);
     }
+
+    // Bulk disabled → go straight to per-recipient
+    const fallbackData = phones.map((p) => ({ recipient: p }));
+    return sendPersonalized(fallbackData);
   }
 
-  return {
-    success: failed.length === 0,
-    message:
-      failed.length === 0
-        ? "All bulk messages sent successfully"
-        : `${failed.length} bulk message(s) failed`,
-    failedMessages: failed,
-  };
+  // Personalized path required (placeholders present)
+  return sendPersonalized(recipientsData);
 };
 
 /**
  * Convenience: same message(s) for everyone (schedule use-case).
- * Tries true bulk first; falls back automatically.
+ * Tries true bulk first; **now falls back** automatically.
  */
 exports.sendManySameMessage = async (
   businessId,

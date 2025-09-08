@@ -1,3 +1,4 @@
+// controllers/scheduleController.js
 "use strict";
 
 const svc = require("../services/scheduleService");
@@ -7,27 +8,45 @@ const {
   toUtcFromLocalISO,
 } = require("../utils/timezone");
 
+/** Split uploaded files into top-level and per-item buckets */
+function splitItemFiles(all = []) {
+  const top = [];
+  const byIndex = new Map(); // index -> [File]
+  for (const f of all) {
+    const name = f.fieldname || "files";
+    const m = /^item_files_(\d+)$/.exec(name);
+    if (m) {
+      const i = Number(m[1]);
+      if (!byIndex.has(i)) byIndex.set(i, []);
+      byIndex.get(i).push(f);
+    } else if (name === "files" || name === "attachments") {
+      top.push(f);
+    }
+  }
+  return { top, byIndex };
+}
+
 /**
- * POST /api/schedules
- * Body may include:
- *  - audience:
- *      audience_type: "TO_NUMBER" | "CUSTOMERS" | "CATEGORY"
- *      to_number (legacy single) OR to_numbers_json (array of recipients)
- *      customer_ids_json (array)
- *      category_id (legacy single) OR category_ids_json (array)
- *  - content: template_id?, body, variables_json?
- *  - media: files[] (multipart), remove_media? (on PATCH)
- *  - schedule:
- *      type: "ONE_OFF" | "CRON"
- *      send_at_local (ISO without Z) + timezone  -> converted to send_at_utc
- *      OR send_at_utc (ISO with Z)
- *      cron_expr (for CRON)
+ * Body supports:
+ *  - audience: (same as before)
+ *  - content: template_id?, body, messages_json? (array of strings), variables_json?
+ *  - media: files[] (multipart, legacy), item_files_<index>[] (per-item uploads)
+ *  - schedule: type, send_at_local+timezone OR send_at_utc, cron_expr
  *  - status: "ACTIVE" | "PAUSED" | "CANCELLED"
+ *  - items / items_json: array of {
+ *      id?, order_index?, offset_seconds?, enabled?,
+ *      template_id?, body?, messages?/messages_json?,
+ *      media_url?/media_urls?/media_json?, variables_json?,
+ *      remove_existing? (boolean) // if true on PATCH, clears existing media for that item
+ *    }
+ *  - PATCH extras:
+ *      items_replace: true | "1"
+ *      items_upsert: []
+ *      items_delete_ids: []
  */
 exports.createSchedule = async (req, res, next) => {
   try {
     const tz = pickTimezone(req);
-
     if (!req.body.timezone || !isValidIana(req.body.timezone)) {
       req.body.timezone = tz;
     }
@@ -43,11 +62,14 @@ exports.createSchedule = async (req, res, next) => {
       req.body.send_at_utc = dt.toISOString();
     }
 
+    const { top, byIndex } = splitItemFiles(req.files || []);
+
     const schedule = await svc.createSchedule(
       req.user.business_id,
       req.user.id,
       req.body,
-      req.files || []
+      top,
+      byIndex
     );
     res.status(201).json(schedule);
   } catch (e) {
@@ -104,11 +126,14 @@ exports.updateSchedule = async (req, res, next) => {
       req.body.send_at_utc = dt.toISOString();
     }
 
+    const { top, byIndex } = splitItemFiles(req.files || []);
+
     const updated = await svc.updateSchedule(
       req.user.business_id,
       req.params.id,
       req.body,
-      req.files || []
+      top,
+      byIndex
     );
     res.json(updated);
   } catch (e) {

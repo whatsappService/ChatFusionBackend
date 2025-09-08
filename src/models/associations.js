@@ -22,7 +22,8 @@ const UserFeature = require("./userFeature");
 const UserPermission = require("./userPermission"); // ✅ needed by services
 
 // Scheduling
-const ScheduledMessage = require("./scheduledMessage");
+const ScheduledMessage = require("./ScheduledMessage");
+const ScheduledMessageItem = require("./ScheduledMessageItem");
 
 // Packages
 const BusinessPackage = require("./businessPackage");
@@ -395,6 +396,8 @@ User.hasMany(UsageCounter, {
   onUpdate: "CASCADE",
 });
 
+ScheduledMessage.associate({ ScheduledMessageItem });
+ScheduledMessageItem.associate({ ScheduledMessage });
 /* =========================
  * Initialize scopes after wiring
  * =======================*/
@@ -424,7 +427,7 @@ module.exports = {
 
   // Scheduling
   ScheduledMessage,
-
+  ScheduledMessageItem,
   // Packages
   BusinessPackage,
   BusinessPackageFeature,

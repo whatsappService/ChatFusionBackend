@@ -7,14 +7,26 @@ const authenticateUser = require("../middleware/authMiddleware");
 const requireFeature = require("../middleware/requireFeature");
 const requirePermission = require("../middleware/requirePermission");
 const scheduleController = require("../controllers/scheduleController");
-const scheduleService = require("../services/scheduleService"); // for /dispatch
+const scheduleService = require("../services/scheduleService");
 
 const router = express.Router();
 
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 25 * 1024 * 1024, files: 30 },
-});
+const storage = multer.memoryStorage();
+const limits = { fileSize: 25 * 1024 * 1024, files: 30 };
+
+// whitelist top-level "files" and dynamic per-item "item_files_<index>"
+const fileFilter = (_req, file, cb) => {
+  if (
+    file.fieldname === "files" ||
+    file.fieldname === "attachments" ||
+    /^item_files_\d+$/.test(file.fieldname)
+  ) {
+    return cb(null, true);
+  }
+  return cb(new multer.MulterError("LIMIT_UNEXPECTED_FILE", file.fieldname));
+};
+
+const upload = multer({ storage, limits, fileFilter });
 
 const requireMediaIfFiles = (req, res, next) => {
   const files = Array.isArray(req.files)
@@ -28,12 +40,12 @@ const requireMediaIfFiles = (req, res, next) => {
 
 const base = [authenticateUser, requireFeature("scheduled_messages")];
 
-/* Create schedule */
+/* Create */
 router.post(
   "/",
   ...base,
   requirePermission("schedules.create"),
-  upload.array("files", 10),
+  upload.any(), // <— allow both 'files' and 'item_files_*'
   requireMediaIfFiles,
   scheduleController.createSchedule
 );
@@ -52,16 +64,17 @@ router.get(
   scheduleController.getSchedule
 );
 
-/* Update / lifecycle */
+/* Update */
 router.patch(
   "/:id",
   ...base,
   requirePermission("schedules.update"),
-  upload.array("files", 10),
+  upload.any(), // <— same for PATCH
   requireMediaIfFiles,
   scheduleController.updateSchedule
 );
 
+/* Lifecycle */
 router.post(
   "/:id/pause",
   ...base,
@@ -81,14 +94,6 @@ router.post(
   scheduleController.cancelSchedule
 );
 
-/* Delete */
-router.delete(
-  "/:id",
-  ...base,
-  requirePermission("schedules.delete"),
-  scheduleController.deleteSchedule
-);
-
 /* Preview cron */
 router.post(
   "/preview",
@@ -105,15 +110,14 @@ router.post(
   scheduleController.runNow
 );
 
-/* Optional: trigger dispatcher manually (admin-ish) */
+/* Dispatcher (optional) */
 router.post(
   "/dispatch",
   ...base,
   requirePermission("schedules.update"),
   async (_req, res, next) => {
     try {
-      const result = await scheduleService.dispatchDueSchedules(50);
-      res.json(result);
+      res.json(await scheduleService.dispatchDueSchedules(50));
     } catch (e) {
       next(e);
     }

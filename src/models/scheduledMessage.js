@@ -4,10 +4,20 @@ const sequelize = require("../config/database");
 
 class ScheduledMessage extends Model {
   /**
-   * Convenience: return rich list of media items.
-   * If `media_json` exists, use it. Otherwise fallback to `media_url` (string or JSON array of URLs).
+   * Back-compat: Return media items if this instance used the legacy single-message fields.
+   * If child items are loaded (this.items), prefer those.
    */
   getMediaItems() {
+    // If items are loaded and first enabled item has media, use that (UI convenience)
+    const items = this.get("items") || this.items || [];
+    if (Array.isArray(items) && items.length > 0) {
+      const first = items.find((it) => it.enabled) || items[0];
+      if (first && typeof first.getMediaItems === "function") {
+        return first.getMediaItems();
+      }
+    }
+
+    // Fallback to legacy parent fields
     const j = this.getDataValue("media_json");
     if (Array.isArray(j)) return j;
 
@@ -16,15 +26,74 @@ class ScheduledMessage extends Model {
     try {
       const arr = typeof legacy === "string" ? JSON.parse(legacy) : legacy;
       if (Array.isArray(arr)) {
-        return arr.map((url) => ({ url, mime_type: null, name: null, size_bytes: null }));
+        return arr.map((url) => ({
+          url,
+          mime_type: null,
+          name: null,
+          size_bytes: null,
+        }));
       }
-      // single string URL fallback
-      if (typeof legacy === "string") return [{ url: legacy, mime_type: null, name: null, size_bytes: null }];
+      if (typeof legacy === "string")
+        return [{ url: legacy, mime_type: null, name: null, size_bytes: null }];
       return [];
     } catch {
-      if (typeof legacy === "string") return [{ url: legacy, mime_type: null, name: null, size_bytes: null }];
+      if (typeof legacy === "string")
+        return [{ url: legacy, mime_type: null, name: null, size_bytes: null }];
       return [];
     }
+  }
+
+  /**
+   * New helper: normalize to an array of message-like objects.
+   * If child items are present, return them (plain objects).
+   * Otherwise, synthesize a single legacy step from parent fields.
+   */
+  getAllMessageItems({ includeLegacy = true } = {}) {
+    const items = this.get("items") || this.items || [];
+    if (Array.isArray(items) && items.length > 0) {
+      return items.map((it) =>
+        typeof it.get === "function" ? it.get({ plain: true }) : it || {}
+      );
+    }
+    if (!includeLegacy) return [];
+
+    return [
+      {
+        id: null,
+        scheduled_message_id: this.getDataValue("id"),
+        order_index: 0,
+        offset_seconds: 0,
+        template_id: this.getDataValue("template_id") || null,
+        body: this.getDataValue("body") || null,
+
+        // NEW: surface parent-level messages_json
+        messages_json: this.getDataValue("messages_json") || null,
+
+        media_url: this.getDataValue("media_url") || null,
+        media_json: this.getDataValue("media_json") || null,
+        variables_json: this.getDataValue("variables_json") || null,
+        enabled: true,
+        max_attempts: this.getDataValue("max_attempts") || 3,
+        last_sent_at: null,
+        createdAt: this.getDataValue("createdAt"),
+        updatedAt: this.getDataValue("updatedAt"),
+      },
+    ].filter((obj) => {
+      const hasContent =
+        obj.template_id != null ||
+        (obj.body && obj.body.trim() !== "") ||
+        (Array.isArray(obj.messages_json) && obj.messages_json.length > 0) ||
+        (Array.isArray(obj.media_json) && obj.media_json.length > 0) ||
+        (typeof obj.media_url === "string" && obj.media_url.trim() !== "");
+      return hasContent;
+    });
+  }
+
+  static associate(models) {
+    this.hasMany(models.ScheduledMessageItem, {
+      foreignKey: "scheduled_message_id",
+      as: "items",
+    });
   }
 }
 
@@ -46,16 +115,13 @@ ScheduledMessage.init(
     category_id: { type: DataTypes.INTEGER, allowNull: true }, // legacy single category
     category_ids_json: { type: DataTypes.JSON, allowNull: true }, // NEW: [id, id]
 
-    // template
+    // legacy single-message content (kept for compat)
     template_id: { type: DataTypes.INTEGER, allowNull: true },
-
-    // content
     body: { type: DataTypes.TEXT, allowNull: true },
-
-    // media
-    media_url: { type: DataTypes.TEXT, allowNull: true },      // legacy: string or JSON of URLs
-    media_json: { type: DataTypes.JSON, allowNull: true },      // NEW: array of {url, mime_type, name, size_bytes}
-    variables_json: { type: DataTypes.JSON, allowNull: true },  // optional
+    messages_json: { type: DataTypes.JSON, allowNull: true },
+    media_url: { type: DataTypes.TEXT, allowNull: true },
+    media_json: { type: DataTypes.JSON, allowNull: true },
+    variables_json: { type: DataTypes.JSON, allowNull: true },
 
     // scheduling
     type: { type: DataTypes.ENUM("ONE_OFF", "CRON"), allowNull: false },

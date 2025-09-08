@@ -188,6 +188,45 @@ module.exports = {
         );
       };
 
+      // NEW: upsert ScheduledMessageItem (fixed placeholder count)
+      const upsertScheduledMessageItem = async (item) => {
+        await sequelize.query(
+          `INSERT INTO \`ScheduledMessageItems\`
+           (id, scheduled_message_id, order_index, offset_seconds, template_id, body, media_url, media_json, variables_json, enabled, max_attempts, last_sent_at, createdAt, updatedAt)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+           ON DUPLICATE KEY UPDATE
+             scheduled_message_id=VALUES(scheduled_message_id),
+             order_index=VALUES(order_index),
+             offset_seconds=VALUES(offset_seconds),
+             template_id=VALUES(template_id),
+             body=VALUES(body),
+             media_url=VALUES(media_url),
+             media_json=VALUES(media_json),
+             variables_json=VALUES(variables_json),
+             enabled=VALUES(enabled),
+             max_attempts=VALUES(max_attempts),
+             last_sent_at=VALUES(last_sent_at),
+             updatedAt=VALUES(updatedAt)`,
+          {
+            replacements: [
+              item.id,
+              item.scheduled_message_id,
+              item.order_index ?? 0,
+              item.offset_seconds ?? 0,
+              item.template_id ?? null,
+              item.body ?? null,
+              item.media_url ?? null,
+              item.media_json ?? null,
+              item.variables_json ?? null,
+              item.enabled ? 1 : 0,
+              item.max_attempts ?? 3,
+              item.last_sent_at ?? null,
+            ],
+            transaction: t,
+          }
+        );
+      };
+
       // tiny util
       const tryExec = (sql, replacements = []) =>
         sequelize.query(sql, { replacements, transaction: t }).catch(() => {});
@@ -342,7 +381,8 @@ module.exports = {
           is_deleted: 0,
           default_timezone: DEFAULT_TZ,
           category_id: retail.id,
-          api_key: null,
+          api_key:
+            "a717c2e905974ac5f65cbc716eb7221ebe9860ab580582d069c58575eb77afcd",
           createdAt: new Date(),
           updatedAt: new Date(),
         },
@@ -483,7 +523,6 @@ module.exports = {
       });
 
       // ---------- 7) permission catalog ----------
-      // Added "categories.read" under the "customers" feature.
       const PERMISSIONS_BY_FEATURE = {
         single_messages: ["messages.read", "messages.send.single"],
         bulk_send: ["messages.read", "messages.send.bulk"],
@@ -502,7 +541,7 @@ module.exports = {
           "customers.template.download",
           "customers.sync",
           "customers.import",
-          "categories.read", // <-- NEW
+          "categories.read",
         ],
         templates: [
           "templates.read",
@@ -550,7 +589,7 @@ module.exports = {
         for (const p of perms) await upsertCatalog(fcode, p);
       }
 
-      // ---------- 8) Admin: all features + all perms (now includes categories.read) + wildcard ----------
+      // ---------- 8) Admin: all features + all perms + wildcard ----------
       for (const code of Object.keys(featureMap)) {
         await upsertPackageFeature({
           package_id: adminPkg.id,
@@ -825,7 +864,7 @@ module.exports = {
         }
       }
 
-      // ---------- 14) Message templates (no `placeholders` column) ----------
+      // ---------- 14) Message templates ----------
       const systemTemplates = [
         {
           business_id: null,
@@ -919,6 +958,18 @@ module.exports = {
           }
         );
       }
+
+      // fetch template ids for demo items
+      const [tplWelcomeRows] = await sequelize.query(
+        "SELECT id FROM `MessageTemplates` WHERE business_id=? AND template_name_en=? LIMIT 1",
+        { replacements: [superBusiness.id, "Welcome"], transaction: t }
+      );
+      const [tplFollowUpRows] = await sequelize.query(
+        "SELECT id FROM `MessageTemplates` WHERE business_id=? AND template_name_en=? LIMIT 1",
+        { replacements: [superBusiness.id, "Follow Up"], transaction: t }
+      );
+      const tplWelcomeId = tplWelcomeRows[0]?.id || null;
+      const tplFollowUpId = tplFollowUpRows[0]?.id || null;
 
       // ---------- 14.5) Seed global placeholders ----------
       const PLACEHOLDERS = [
@@ -1148,7 +1199,7 @@ module.exports = {
       const johnId = johnRows[0]?.id || null;
       const janeId = janeRows[0]?.id || null;
 
-      // ---------- 16) sample scheduled messages (UPDATED for multi recipients + multi media) ----------
+      // ---------- 16) sample scheduled messages (parent) ----------
       const now = new Date();
       const in20m = new Date(now.getTime() + 20 * 60 * 1000);
       const in5m = new Date(now.getTime() + 5 * 60 * 1000);
@@ -1178,24 +1229,21 @@ module.exports = {
         },
       ];
 
-      // three samples:
-      // 1) TO_NUMBER with multi numbers (to_numbers_json) + multi media
-      // 2) CUSTOMERS with multi customer ids (no media)
-      // 3) CATEGORY with multi category ids (with one media)
+      // parent rows
       const samples = [
         {
           id: "c0ffee00-0000-4000-8000-000000000001",
           business_id: superBusiness.id,
           created_by_user: superAdmin.id,
           audience_type: "TO_NUMBER",
-          to_number: "+15550123456", // legacy single
+          to_number: "+15550123456",
           to_numbers_json: JSON.stringify(["+15550123456", "+15550123457"]),
           customer_ids_json: null,
           category_id: null,
           category_ids_json: null,
           body: "Hello from seed! (ONE_OFF) See you soon, {first_name}.",
-          media_url: JSON.stringify(demoMedia1.map((m) => m.url)), // legacy
-          media_json: JSON.stringify(demoMedia1), // NEW
+          media_url: JSON.stringify(demoMedia1.map((m) => m.url)),
+          media_json: JSON.stringify(demoMedia1),
           variables_json: JSON.stringify({ first_name: "Seed User" }),
           type: "ONE_OFF",
           send_at_utc: in20m,
@@ -1243,8 +1291,8 @@ module.exports = {
           category_id: null,
           category_ids_json: JSON.stringify([catMap["Regular"], catMap["VIP"]]),
           body: "Hi {first_name}, this goes to Regular & VIP categories every day at 09:00.",
-          media_url: JSON.stringify(demoMedia2.map((m) => m.url)), // legacy
-          media_json: JSON.stringify(demoMedia2), // NEW
+          media_url: JSON.stringify(demoMedia2.map((m) => m.url)),
+          media_json: JSON.stringify(demoMedia2),
           variables_json: JSON.stringify({ first_name: "Customer" }),
           type: "CRON",
           send_at_utc: null,
@@ -1252,7 +1300,7 @@ module.exports = {
           timezone: DEFAULT_TZ,
           status: "ACTIVE",
           last_run_at: null,
-          next_run_at: null, // computed by app at runtime
+          next_run_at: null,
           max_attempts: 3,
         },
       ];
@@ -1260,15 +1308,16 @@ module.exports = {
       for (const s of samples) {
         await sequelize.query(
           `INSERT INTO \`ScheduledMessages\`
-     (id, business_id, created_by_user, audience_type, to_number, to_numbers_json, customer_ids_json, category_id, category_ids_json, body, media_url, media_json, variables_json, type, send_at_utc, cron_expr, timezone, status, last_run_at, next_run_at, max_attempts, createdAt, updatedAt)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
-     ON DUPLICATE KEY UPDATE business_id=VALUES(business_id), created_by_user=VALUES(created_by_user),
-       audience_type=VALUES(audience_type), to_number=VALUES(to_number), to_numbers_json=VALUES(to_numbers_json),
-       customer_ids_json=VALUES(customer_ids_json), category_id=VALUES(category_id), category_ids_json=VALUES(category_ids_json),
-       body=VALUES(body), media_url=VALUES(media_url), media_json=VALUES(media_json), variables_json=VALUES(variables_json),
-       type=VALUES(type), send_at_utc=VALUES(send_at_utc), cron_expr=VALUES(cron_expr),
-       timezone=VALUES(timezone), status=VALUES(status), last_run_at=VALUES(last_run_at), next_run_at=VALUES(next_run_at),
-       max_attempts=VALUES(max_attempts), updatedAt=VALUES(updatedAt)`,
+           (id, business_id, created_by_user, audience_type, to_number, to_numbers_json, customer_ids_json, category_id, category_ids_json, body, media_url, media_json, variables_json, type, send_at_utc, cron_expr, timezone, status, last_run_at, next_run_at, max_attempts, createdAt, updatedAt)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+           ON DUPLICATE KEY UPDATE
+             business_id=VALUES(business_id), created_by_user=VALUES(created_by_user),
+             audience_type=VALUES(audience_type), to_number=VALUES(to_number), to_numbers_json=VALUES(to_numbers_json),
+             customer_ids_json=VALUES(customer_ids_json), category_id=VALUES(category_id), category_ids_json=VALUES(category_ids_json),
+             body=VALUES(body), media_url=VALUES(media_url), media_json=VALUES(media_json), variables_json=VALUES(variables_json),
+             type=VALUES(type), send_at_utc=VALUES(send_at_utc), cron_expr=VALUES(cron_expr),
+             timezone=VALUES(timezone), status=VALUES(status), last_run_at=VALUES(last_run_at), next_run_at=VALUES(next_run_at),
+             max_attempts=VALUES(max_attempts), updatedAt=VALUES(updatedAt)`,
           {
             replacements: [
               s.id,
@@ -1298,6 +1347,112 @@ module.exports = {
         );
       }
 
+      // ---------- 16.1) sample scheduled message ITEMS ----------
+      const items = [
+        // For schedule #1 (ONE_OFF): immediate + 1h follow-up
+        {
+          id: "c0f1e000-0000-4000-8000-000000000101",
+          scheduled_message_id: "c0ffee00-0000-4000-8000-000000000001",
+          order_index: 0,
+          offset_seconds: 0,
+          template_id: tplWelcomeId,
+          body: null,
+          media_url: JSON.stringify(demoMedia1.map((m) => m.url)),
+          media_json: JSON.stringify(demoMedia1),
+          variables_json: JSON.stringify({
+            first_name: "Seed User",
+            business_name: "ChatFusion",
+          }),
+          enabled: 1,
+          max_attempts: 3,
+          last_sent_at: null,
+        },
+        {
+          id: "c0f1e000-0000-4000-8000-000000000102",
+          scheduled_message_id: "c0ffee00-0000-4000-8000-000000000001",
+          order_index: 1,
+          offset_seconds: 3600,
+          template_id: tplFollowUpId,
+          body: null,
+          media_url: null,
+          media_json: null,
+          variables_json: JSON.stringify({
+            first_name: "Seed User",
+            business_name: "ChatFusion",
+          }),
+          enabled: 1,
+          max_attempts: 3,
+          last_sent_at: null,
+        },
+
+        // For schedule #2 (CRON every 5 min): two pings per tick
+        {
+          id: "c0f1e000-0000-4000-8000-000000000201",
+          scheduled_message_id: "c0ffee00-0000-4000-8000-000000000002",
+          order_index: 0,
+          offset_seconds: 0,
+          template_id: null,
+          body: "Ping #1: Hello {first_name}, thanks for staying with {business_name}.",
+          media_url: null,
+          media_json: null,
+          variables_json: JSON.stringify({
+            first_name: "Friend",
+            business_name: "ChatFusion",
+          }),
+          enabled: 1,
+          max_attempts: 3,
+          last_sent_at: null,
+        },
+        {
+          id: "c0f1e000-0000-4000-8000-000000000202",
+          scheduled_message_id: "c0ffee00-0000-4000-8000-000000000002",
+          order_index: 1,
+          offset_seconds: 600,
+          template_id: null,
+          body: "Ping #2: We're still here if you need help, {first_name}.",
+          media_url: null,
+          media_json: null,
+          variables_json: JSON.stringify({ first_name: "Friend" }),
+          enabled: 1,
+          max_attempts: 3,
+          last_sent_at: null,
+        },
+
+        // For schedule #3 (CRON daily 09:00): main + 30 min reminder
+        {
+          id: "c0f1e000-0000-4000-8000-000000000301",
+          scheduled_message_id: "c0ffee00-0000-4000-8000-000000000003",
+          order_index: 0,
+          offset_seconds: 0,
+          template_id: null,
+          body: "Good morning {first_name}! Here's your daily update.",
+          media_url: JSON.stringify(demoMedia2.map((m) => m.url)),
+          media_json: JSON.stringify(demoMedia2),
+          variables_json: JSON.stringify({ first_name: "Customer" }),
+          enabled: 1,
+          max_attempts: 3,
+          last_sent_at: null,
+        },
+        {
+          id: "c0f1e000-0000-4000-8000-000000000302",
+          scheduled_message_id: "c0ffee00-0000-4000-8000-000000000003",
+          order_index: 1,
+          offset_seconds: 1800,
+          template_id: null,
+          body: "Reminder: Did you see our message, {first_name}?",
+          media_url: null,
+          media_json: null,
+          variables_json: JSON.stringify({ first_name: "Customer" }),
+          enabled: 1,
+          max_attempts: 3,
+          last_sent_at: null,
+        },
+      ];
+
+      for (const it of items) {
+        await upsertScheduledMessageItem(it);
+      }
+
       // ---------- 17) BACKFILL PermissionCatalog ----------
       const guessFeature = (perm) => {
         const map = [
@@ -1307,7 +1462,7 @@ module.exports = {
           [/^schedules\./, "scheduled_messages"],
           [/^media\./, "media_attachments"],
           [/^customers\./, "customers"],
-          [/^categories\.read$/, "customers"], // map categories.read to customers feature
+          [/^categories\.read$/, "customers"],
           [/^templates\./, "templates"],
           [/^users\./, "users"],
           [/^(team\.manage|multiuser\.manage)$/, "users"],
@@ -1376,15 +1531,24 @@ module.exports = {
         "custom@demo.com",
       ];
 
-      // Clean scheduled messages
+      // Clean child items first (by parent ids)
+      const parentIds = [
+        "c0ffee00-0000-4000-8000-000000000001",
+        "c0ffee00-0000-4000-8000-000000000002",
+        "c0ffee00-0000-4000-8000-000000000003",
+      ];
+      await sequelize.query(
+        `DELETE FROM \`ScheduledMessageItems\` WHERE scheduled_message_id IN (${parentIds
+          .map(() => "?")
+          .join(",")})`,
+        { replacements: parentIds, transaction: t }
+      );
+
+      // Clean scheduled messages (parents)
       await sequelize.query(
         "DELETE FROM `ScheduledMessages` WHERE id IN (?, ?, ?)",
         {
-          replacements: [
-            "c0ffee00-0000-4000-8000-000000000001",
-            "c0ffee00-0000-4000-8000-000000000002",
-            "c0ffee00-0000-4000-8000-000000000003",
-          ],
+          replacements: parentIds,
           transaction: t,
         }
       );
@@ -1515,7 +1679,7 @@ module.exports = {
         "customers.template.download",
         "customers.sync",
         "customers.import",
-        "categories.read", // <-- NEW
+        "categories.read",
         "templates.read",
         "templates.create",
         "templates.update",

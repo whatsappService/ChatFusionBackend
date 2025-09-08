@@ -1,3 +1,4 @@
+// services/scheduleService.js
 "use strict";
 
 const { Op } = require("sequelize");
@@ -5,7 +6,9 @@ const path = require("path");
 const fs = require("fs").promises;
 const { v4: uuidv4 } = require("uuid");
 
-const ScheduledMessage = require("../models/scheduledMessage");
+// IMPORTANT: match your actual filename/casing
+const ScheduledMessage = require("../models/ScheduledMessage"); // or "../models/scheduledMessage"
+const ScheduledMessageItem = require("../models/ScheduledMessageItem");
 const Customer = require("../models/customer");
 const MessageTemplate = require("../models/messageTemplate");
 
@@ -18,20 +21,16 @@ const SERVER_TZ = process.env.SERVER_DEFAULT_TZ || "Asia/Hebron";
 /* ---------------- cron-parser loader (CJS/ESM safe) ---------------- */
 let _parseCronFn = null;
 let _cronTried = false;
-
 async function loadCronParser() {
   if (_cronTried) return _parseCronFn;
   _cronTried = true;
-
   try {
-    // eslint-disable-next-line global-require
     const mod = require("cron-parser");
     if (mod && typeof mod.parseExpression === "function")
       _parseCronFn = mod.parseExpression;
     else if (mod?.default && typeof mod.default.parseExpression === "function")
       _parseCronFn = mod.default.parseExpression;
   } catch (_) {}
-
   if (!_parseCronFn) {
     try {
       const mod = await import("cron-parser");
@@ -44,15 +43,13 @@ async function loadCronParser() {
         _parseCronFn = mod.default.parseExpression;
     } catch (_) {}
   }
-
   return _parseCronFn;
 }
 
-/* ---------------- helpers: files ---------------- */
+/* ---------------- file helpers ---------------- */
 async function ensureDir() {
   await fs.mkdir(UPLOAD_DIR, { recursive: true });
 }
-
 async function saveFiles(files) {
   if (!Array.isArray(files) || files.length === 0) return null;
   await ensureDir();
@@ -66,31 +63,66 @@ async function saveFiles(files) {
   return JSON.stringify(urls);
 }
 
-async function loadSavedFiles(media_url) {
-  const list = [];
-  if (!media_url) return list;
+/** turn legacy/media_json+media_url into local files+remote urls for send */
+async function extractMediaSources(media_url, media_json) {
+  const files = [];
+  const urls = [];
 
-  let arr;
-  try {
-    arr = JSON.parse(media_url);
-  } catch {
-    return list;
-  }
-  if (!Array.isArray(arr) || !arr.length) return list;
-
-  for (const p of arr) {
-    if (!p || typeof p !== "string") continue;
+  const pushLocalFile = async (p) => {
+    if (!p || typeof p !== "string") return;
+    if (!p.startsWith("/uploads/")) return;
     const rel = p.replace(/^\/+/, "");
     const full = path.join(process.cwd(), rel);
     const name = path.basename(full);
     try {
       const buffer = await fs.readFile(full);
-      list.push({ buffer, originalname: name });
+      files.push({ buffer, originalname: name });
     } catch {
-      // ignore missing
+      // silent
+    }
+  };
+
+  const pushUrlOrLocal = async (u) => {
+    if (!u || typeof u !== "string") return;
+    if (u.startsWith("/uploads/")) await pushLocalFile(u);
+    else urls.push(u);
+  };
+
+  if (Array.isArray(media_json)) {
+    for (const m of media_json) {
+      const u = m?.url || m?.href || m?.src;
+      if (typeof u === "string") await pushUrlOrLocal(u);
     }
   }
-  return list;
+
+  if (media_url) {
+    let arr = null;
+    if (typeof media_url === "string") {
+      try {
+        const parsed = JSON.parse(media_url);
+        if (Array.isArray(parsed)) arr = parsed;
+      } catch {
+        arr = [media_url];
+      }
+    } else if (Array.isArray(media_url)) {
+      arr = media_url;
+    }
+    if (Array.isArray(arr)) {
+      for (const u of arr) await pushUrlOrLocal(u);
+    }
+  }
+
+  return { files, urls };
+}
+async function mergeMediaSources(
+  item_media_url,
+  item_media_json,
+  row_media_url,
+  row_media_json
+) {
+  const a = await extractMediaSources(item_media_url, item_media_json);
+  const b = await extractMediaSources(row_media_url, row_media_json);
+  return { files: [...a.files, ...b.files], urls: [...a.urls, ...b.urls] };
 }
 
 /* ---------------- helpers: templating ---------------- */
@@ -105,7 +137,6 @@ function applyVars(text, vars) {
     return dict[key] != null ? String(dict[key]) : `{${rawKey}}`;
   });
 }
-
 function pickTemplateBody(tpl) {
   if (!tpl) return null;
   return (
@@ -114,35 +145,114 @@ function pickTemplateBody(tpl) {
 }
 
 /* ---------------- helpers: schedule logic ---------------- */
-async function computeNextRunAsync({
-  type,
-  cron_expr,
-  timezone,
-  send_at_utc,
-  status,
-}) {
-  if (status !== "ACTIVE") return null;
+async function computeNextCron({ cron_expr, timezone }, from = new Date()) {
+  const parseCron = await loadCronParser();
+  if (!parseCron) return null;
+  try {
+    const it = parseCron(cron_expr, {
+      tz: isValidIana(timezone) ? timezone : SERVER_TZ,
+      currentDate: from,
+    });
+    return it.next().toDate();
+  } catch {
+    return null;
+  }
+}
+async function computePrevCron({ cron_expr, timezone }, from = new Date()) {
+  const parseCron = await loadCronParser();
+  if (!parseCron) return null;
+  try {
+    const it = parseCron(cron_expr, {
+      tz: isValidIana(timezone) ? timezone : SERVER_TZ,
+      currentDate: from,
+    });
+    return it.prev().toDate();
+  } catch {
+    return null;
+  }
+}
+async function computeInitialNextRun(payload, items = [], now = new Date()) {
+  if (payload.status !== "ACTIVE") return null;
 
-  if (type === "ONE_OFF") {
-    const when = send_at_utc ? new Date(send_at_utc) : null;
-    return when && when > new Date() ? when : null;
+  if (payload.type === "ONE_OFF") {
+    if (!payload.send_at_utc) return null;
+    const base = new Date(payload.send_at_utc);
+    if (isNaN(base)) return null;
+
+    const enabledItems = (items || []).filter((it) => it.enabled !== false);
+    const offsets = enabledItems.length
+      ? enabledItems.map((i) => Number(i.offset_seconds) || 0)
+      : [0];
+    const times = offsets
+      .map((off) => new Date(base.getTime() + off * 1000))
+      .filter((d) => d >= now);
+    return times.length
+      ? new Date(Math.min(...times.map((d) => d.getTime())))
+      : null;
   }
 
-  if (type === "CRON" && cron_expr) {
-    const parseCron = await loadCronParser();
-    if (!parseCron) return null;
-    try {
-      const it = parseCron(cron_expr, {
-        tz: isValidIana(timezone) ? timezone : SERVER_TZ,
-      });
-      return it.next().toDate();
-    } catch {
-      return null;
-    }
+  if (payload.type === "CRON" && payload.cron_expr) {
+    return await computeNextCron(payload, now);
   }
+
   return null;
 }
+async function computePostRunNextRun(row, items, now = new Date()) {
+  if (row.status !== "ACTIVE") return null;
 
+  if (row.type === "ONE_OFF") {
+    const base = row.send_at_utc ? new Date(row.send_at_utc) : null;
+    if (!base) return null;
+    const remaining = (items || [])
+      .filter((it) => it.enabled !== false)
+      .filter((it) => {
+        const dueAt = new Date(
+          base.getTime() + (Number(it.offset_seconds) || 0) * 1000
+        );
+        const sent = it.last_sent_at ? new Date(it.last_sent_at) : null;
+        return (!sent || sent < base) && dueAt > now;
+      })
+      .map(
+        (it) =>
+          new Date(base.getTime() + (Number(it.offset_seconds) || 0) * 1000)
+      );
+    return remaining.length
+      ? new Date(Math.min(...remaining.map((d) => d.getTime())))
+      : null;
+  }
+
+  if (row.type === "CRON") {
+    const base = await computePrevCron(row, now);
+    const nextCron = await computeNextCron(row, now);
+    if (!base && !nextCron) return null;
+
+    const candidates = [];
+    if (nextCron) candidates.push(nextCron);
+
+    if (base) {
+      const nextOffsetTime = (items || [])
+        .filter((it) => it.enabled !== false)
+        .filter((it) => {
+          const dueAt = new Date(
+            base.getTime() + (Number(it.offset_seconds) || 0) * 1000
+          );
+          const sent = it.last_sent_at ? new Date(it.last_sent_at) : null;
+          return (!sent || sent < base) && dueAt > now;
+        })
+        .map(
+          (it) =>
+            new Date(base.getTime() + (Number(it.offset_seconds) || 0) * 1000)
+        )
+        .sort((a, b) => a - b)[0];
+      if (nextOffsetTime) candidates.push(nextOffsetTime);
+    }
+
+    if (!candidates.length) return nextCron || null;
+    return new Date(Math.min(...candidates.map((d) => d.getTime())));
+  }
+
+  return null;
+}
 function withLocalFields(row, tz) {
   const js = row.toJSON ? row.toJSON() : row;
   if (!tz || !isValidIana(tz)) return js;
@@ -171,9 +281,7 @@ function normalizePhones(list) {
     )
   );
 }
-
 async function resolveRecipients(row) {
-  // TO_NUMBER → prefer to_numbers_json; fallback to to_number
   if (row.audience_type === "TO_NUMBER") {
     const arr =
       Array.isArray(row.to_numbers_json) && row.to_numbers_json.length
@@ -214,68 +322,286 @@ async function resolveRecipients(row) {
   return [];
 }
 
+/* ---------------- items helpers ---------------- */
+function parseMaybeJSON(val) {
+  if (val == null) return null;
+  if (typeof val === "object") return val;
+  try {
+    const parsed = JSON.parse(val);
+    return parsed;
+  } catch {
+    return val;
+  }
+}
+function toArrayOrNull(val) {
+  if (val == null) return null;
+  if (Array.isArray(val)) return val.filter((x) => x != null).map(String);
+  if (typeof val === "string") {
+    try {
+      const parsed = JSON.parse(val);
+      if (Array.isArray(parsed))
+        return parsed.filter((x) => x != null).map(String);
+      return [val];
+    } catch {
+      return [val];
+    }
+  }
+  return null;
+}
+
+/** Carry a transient "__remove_existing" flag for PATCH semantics */
+function normalizeItemsInput(itemsInput) {
+  const raw = Array.isArray(itemsInput)
+    ? itemsInput
+    : typeof itemsInput === "string"
+    ? (() => {
+        try {
+          const arr = JSON.parse(itemsInput);
+          return Array.isArray(arr) ? arr : [];
+        } catch {
+          return [];
+        }
+      })()
+    : Array.isArray(parseMaybeJSON(itemsInput))
+    ? parseMaybeJSON(itemsInput)
+    : [];
+
+  return raw.map((it, idx) => {
+    const media_urls = Array.isArray(it?.media_urls)
+      ? it.media_urls
+      : undefined;
+    const media_url =
+      it?.media_url ?? (media_urls ? JSON.stringify(media_urls) : undefined);
+
+    const messages_json =
+      it?.messages_json != null
+        ? toArrayOrNull(it.messages_json)
+        : it?.messages != null
+        ? toArrayOrNull(it.messages)
+        : null;
+
+    const removeExisting =
+      it?.remove_existing === true || it?.removeExisting === true;
+
+    return {
+      id: it.id || undefined,
+      scheduled_message_id: it.scheduled_message_id || null,
+      order_index: typeof it.order_index === "number" ? it.order_index : idx,
+      offset_seconds:
+        typeof it.offset_seconds === "number"
+          ? it.offset_seconds
+          : Number(it.offset_seconds) || 0,
+      enabled:
+        typeof it.enabled === "boolean"
+          ? it.enabled
+          : it.enabled == null
+          ? true
+          : !!it.enabled,
+      template_id:
+        it.template_id == null || it.template_id === ""
+          ? null
+          : Number(it.template_id),
+      body: it.body == null ? null : String(it.body).trim() || null,
+      messages_json,
+      media_url: media_url == null || media_url === "" ? null : media_url,
+      media_json:
+        it.media_json == null
+          ? null
+          : typeof it.media_json === "string"
+          ? (() => {
+              try {
+                return JSON.parse(it.media_json);
+              } catch {
+                return null;
+              }
+            })()
+          : it.media_json,
+      variables_json:
+        it.variables_json == null
+          ? null
+          : typeof it.variables_json === "string"
+          ? (() => {
+              try {
+                return JSON.parse(it.variables_json);
+              } catch {
+                return null;
+              }
+            })()
+          : it.variables_json,
+
+      // transient flag (not persisted) — used to clear media on PATCH
+      __remove_existing: !!removeExisting,
+    };
+  });
+}
+
+async function loadItemsForSchedule(id) {
+  return await ScheduledMessageItem.findAll({
+    where: { scheduled_message_id: id },
+    order: [
+      ["order_index", "ASC"],
+      ["createdAt", "ASC"],
+    ],
+  });
+}
+
 /* ---------------- core sender ---------------- */
-async function deliverSchedule(row) {
-  // Base text: template overrides body
-  let baseText = row.body || "";
-  if (row.template_id) {
-    const tpl = await MessageTemplate.findByPk(row.template_id);
-    const candidate = pickTemplateBody(tpl);
-    if (candidate) baseText = candidate;
+async function deliverItemsForBase(row, items, base, now = new Date()) {
+  const dueItems = (items || []).filter((it) => {
+    if (it.enabled === false) return false;
+    const off = Number(it.offset_seconds) || 0;
+    const dueAt = new Date(base.getTime() + off * 1000);
+    const last = it.last_sent_at ? new Date(it.last_sent_at) : null;
+    const notSentForThisBase = !last || last < base;
+    return notSentForThisBase && dueAt <= now;
+  });
+
+  if (!dueItems.length && items && items.length) {
+    return { sentCount: 0, perItem: [] };
   }
 
-  // Apply global variables_json once (e.g., {order_id}, etc.)
-  const textAfterGlobals = applyVars(baseText, row.variables_json || null);
-  const files = await loadSavedFiles(row.media_url);
+  // Legacy fallback: synthesize single step from parent
+  const synthesized =
+    !items || items.length === 0
+      ? [
+          {
+            id: null,
+            order_index: 0,
+            offset_seconds: 0,
+            template_id: row.template_id || null,
+            body: row.body || null,
+            messages_json: row.messages_json || null,
+            media_url: row.media_url || null,
+            media_json: row.media_json || null,
+            variables_json: row.variables_json || null,
+            enabled: true,
+          },
+        ]
+      : [];
+
+  const working = dueItems.length ? dueItems : synthesized;
 
   const recipients = await resolveRecipients(row);
   if (!recipients.length) {
-    return { success: false, message: "No recipients resolved", recipients: 0 };
+    console.warn(
+      `[schedule:${row.id}] No recipients resolved (audience_type=${row.audience_type})`
+    );
+    return {
+      sentCount: 0,
+      perItem: working.map((w) => ({
+        item_id: w.id || null,
+        success: false,
+        message: "No recipients resolved",
+      })),
+    };
   }
 
-  // Try bulk path (messageService will fallback if personalization is needed)
-  const sendResult = await messageService.sendManySameMessage(
-    row.business_id,
-    recipients,
-    [textAfterGlobals],
-    files
-  );
+  const results = [];
+  for (const it of working) {
+    // Resolve text(s)
+    const tplId = it.template_id || row.template_id || null;
 
-  const failedCount = Array.isArray(sendResult.failedMessages)
-    ? sendResult.failedMessages.length
-    : 0;
+    let baseText = it.body || row.body || "";
+    if (tplId) {
+      const tpl = await MessageTemplate.findByPk(tplId);
+      const candidate = pickTemplateBody(tpl);
+      if (candidate) baseText = candidate;
+    }
 
-  // Normalize schedule send result shape
-  return {
-    success: failedCount === 0,
-    recipients: recipients.length,
-    failed: failedCount,
-    results: sendResult.failedMessages || [],
-  };
+    let messages =
+      (Array.isArray(it.messages_json) && it.messages_json.length
+        ? it.messages_json
+        : Array.isArray(row.messages_json) && row.messages_json.length
+        ? row.messages_json
+        : null) || null;
+
+    if (!Array.isArray(messages) || messages.length === 0) {
+      messages = [baseText];
+    }
+
+    // Variables: parent then item (item overrides)
+    const mergedVars = Object.assign(
+      {},
+      row.variables_json || {},
+      it.variables_json || {}
+    );
+    const finalMessages = messages
+      .map((m) => applyVars(m, mergedVars))
+      .filter((m) => typeof m === "string" && m.trim() !== "");
+
+    // Media: merge item + parent
+    const { files, urls } = await mergeMediaSources(
+      it.media_url ?? null,
+      Array.isArray(it.media_json) ? it.media_json : null,
+      row.media_url ?? null,
+      Array.isArray(row.media_json) ? row.media_json : null
+    );
+
+    // ALWAYS bulk
+    const sendResult = await messageService.sendManySameMessage(
+      row.business_id,
+      recipients,
+      finalMessages,
+      files,
+      urls
+    );
+
+    const failedCount = Array.isArray(sendResult?.failedMessages)
+      ? sendResult.failedMessages.length
+      : sendResult?.success === false
+      ? 1
+      : 0;
+
+    const ok = failedCount === 0;
+
+    if (it.id && ok) {
+      await ScheduledMessageItem.update(
+        { last_sent_at: new Date() },
+        { where: { id: it.id } }
+      );
+    }
+
+    results.push({
+      item_id: it.id || null,
+      success: ok,
+      recipients: recipients.length,
+      failed: failedCount,
+      errors: sendResult.failedMessages || [],
+    });
+  }
+
+  return { sentCount: results.length, perItem: results };
 }
 
 /* ---------------- create ---------------- */
-exports.createSchedule = async (businessId, userId, body = {}, files = []) => {
+exports.createSchedule = async (
+  businessId,
+  userId,
+  body = {},
+  files = [],
+  itemFilesByIndex = new Map()
+) => {
   const {
-    // audience
     audience_type = "TO_NUMBER",
     to_number = null,
-    to_numbers_json = null, // NEW (array)
+    to_numbers_json = null,
     customer_ids_json = null,
     category_id = null,
-    category_ids_json = null, // NEW (array)
-    template_id = null,
+    category_ids_json = null,
 
-    // message
+    template_id = null,
     body: msgBody = null,
+    messages_json = null,
     variables_json = null,
 
-    // schedule
     type,
     send_at_utc = null,
     cron_expr = null,
     timezone = SERVER_TZ,
     status = "ACTIVE",
+
+    items,
+    items_json,
   } = body;
 
   if (!["ONE_OFF", "CRON"].includes(type)) throw new Error("Invalid type");
@@ -284,7 +610,7 @@ exports.createSchedule = async (businessId, userId, body = {}, files = []) => {
   if (type === "CRON" && !cron_expr)
     throw new Error("cron_expr is required for CRON");
 
-  // audience validation (support arrays)
+  // audience validation
   if (audience_type === "TO_NUMBER") {
     const arr = Array.isArray(to_numbers_json)
       ? to_numbers_json
@@ -346,14 +672,21 @@ exports.createSchedule = async (businessId, userId, body = {}, files = []) => {
     }
   }
 
+  // legacy single-message media (when only top-level files are uploaded)
   const media_url = await saveFiles(files);
+
+  const normalizedMessages =
+    messages_json == null
+      ? null
+      : Array.isArray(messages_json)
+      ? messages_json
+      : toArrayOrNull(messages_json);
 
   const payload = {
     id: uuidv4(),
     business_id: businessId,
     created_by_user: userId ?? null,
 
-    // audience
     audience_type,
     to_number: to_number ? String(to_number).trim() : null,
     to_numbers_json:
@@ -400,12 +733,12 @@ exports.createSchedule = async (businessId, userId, body = {}, files = []) => {
             }
           })(),
 
-    // message
+    template_id,
     body: msgBody,
+    messages_json: normalizedMessages,
     media_url,
     variables_json: variables_json ?? null,
 
-    // schedule
     type,
     send_at_utc: send_at_utc ? new Date(send_at_utc) : null,
     cron_expr,
@@ -415,10 +748,40 @@ exports.createSchedule = async (businessId, userId, body = {}, files = []) => {
     next_run_at: null,
   };
 
-  payload.next_run_at = await computeNextRunAsync(payload);
-
   const row = await ScheduledMessage.create(payload);
-  return row.toJSON();
+
+  // Items (multi-message schedule)
+  const normalizedItems = normalizeItemsInput(items ?? items_json);
+  if (normalizedItems.length) {
+    // Attach per-item uploads via itemFilesByIndex (item_files_<index>)
+    for (let i = 0; i < normalizedItems.length; i++) {
+      if (!normalizedItems[i].id) {
+        normalizedItems[i].id = uuidv4();
+      }
+
+      const bucket = itemFilesByIndex.get(i);
+      if (Array.isArray(bucket) && bucket.length) {
+        const urlsJson = await saveFiles(bucket);
+        if (urlsJson) normalizedItems[i].media_url = urlsJson;
+      }
+      normalizedItems[i].scheduled_message_id = row.id;
+    }
+    // Don't hide errors here — if something is wrong, surface it
+    await ScheduledMessageItem.bulkCreate(normalizedItems, { ignoreDuplicates: true });
+
+  }
+
+  const savedItems = normalizedItems.length
+    ? await loadItemsForSchedule(row.id)
+    : [];
+  const nextRun = await computeInitialNextRun(row.toJSON(), savedItems);
+  if (nextRun || nextRun === null) {
+    await row.update({ next_run_at: nextRun });
+  }
+
+  const out = row.toJSON();
+  out.items = savedItems.map((i) => i.toJSON());
+  return out;
 };
 
 /* ---------------- list ---------------- */
@@ -427,12 +790,18 @@ exports.listSchedules = async (businessId, query = {}) => {
   const limit = Math.min(200, Math.max(1, Number(query.limit ?? 20)));
   const q = (query.q || "").trim();
   const type = query.type || "";
+  0;
   const status = query.status || "";
   const order = query.order || "updatedAt";
   const direction =
     (query.direction || "DESC").toUpperCase() === "ASC" ? "ASC" : "DESC";
   const tz =
     query.timezone && isValidIana(query.timezone) ? query.timezone : null;
+
+  const includeItems =
+    String(query.include || "").toLowerCase() === "items" ||
+    query.includeItems === "1" ||
+    query.include_items === "1";
 
   const where = { business_id: businessId };
   if (q) {
@@ -451,20 +820,89 @@ exports.listSchedules = async (businessId, query = {}) => {
     order: [[order, direction]],
   });
 
-  const schedules = rows.map((r) => (tz ? withLocalFields(r, tz) : r.toJSON()));
+  let schedules = rows.map((r) => (tz ? withLocalFields(r, tz) : r.toJSON()));
+
+  if (includeItems && schedules.length) {
+    const ids = schedules.map((s) => s.id);
+    const items = await ScheduledMessageItem.findAll({
+      where: { scheduled_message_id: { [Op.in]: ids } },
+      order: [
+        ["scheduled_message_id", "ASC"],
+        ["order_index", "ASC"],
+        ["createdAt", "ASC"],
+      ],
+    });
+    const byParent = new Map();
+    for (const it of items) {
+      const pid = it.scheduled_message_id;
+      if (!byParent.has(pid)) byParent.set(pid, []);
+      byParent.get(pid).push(it.toJSON());
+    }
+    schedules = schedules.map((s) => ({
+      ...s,
+      items: byParent.get(s.id) || [],
+    }));
+  }
+
   return { schedules, total: count, page, limit, timezone: tz || undefined };
 };
 
-/* ---------------- get ---------------- */
-exports.getSchedule = async (businessId, id, tz) => {
-  const row = await ScheduledMessage.findByPk(id);
-  if (!row || row.business_id !== businessId)
-    throw new Error("Schedule not found");
-  return tz && isValidIana(tz) ? withLocalFields(row, tz) : row.toJSON();
+/* ---------------- get ---------------- */ exports.getSchedule = async (
+  businessId,
+  id,
+  tz
+) => {
+  // Pull the schedule for this tenant, include items in a stable order
+  const row = await ScheduledMessage.findOne({
+    where: { id, business_id: businessId },
+    include: [
+      {
+        model: ScheduledMessageItem,
+        as: "items",
+        separate: true, // ensures order works reliably
+        order: [
+          ["order_index", "ASC"],
+          ["createdAt", "ASC"],
+        ],
+      },
+    ],
+  });
+
+  if (!row) {
+    const err = new Error("Schedule not found");
+    err.status = 404;
+    throw err;
+  }
+
+  // Base JSON with optional local-time helpers
+  const base = tz && isValidIana(tz) ? withLocalFields(row, tz) : row.toJSON();
+
+  // Use model helpers:
+  // - getAllMessageItems: returns included items if present, otherwise a single legacy step
+  // - getMediaItems: convenience list for UI previews
+  const items =
+    typeof row.getAllMessageItems === "function"
+      ? row.getAllMessageItems({ includeLegacy: true })
+      : base.items || [];
+
+  const media =
+    typeof row.getMediaItems === "function" ? row.getMediaItems() : [];
+
+  return {
+    ...base,
+    items, // normalized items array (child items or legacy fallback)
+    media, // convenience media list (for preview UIs)
+  };
 };
 
 /* ---------------- update ---------------- */
-exports.updateSchedule = async (businessId, id, body = {}, files = []) => {
+exports.updateSchedule = async (
+  businessId,
+  id,
+  body = {},
+  files = [],
+  itemFilesByIndex = new Map()
+) => {
   const row = await ScheduledMessage.findByPk(id);
   if (!row || row.business_id !== businessId)
     throw new Error("Schedule not found");
@@ -477,8 +915,6 @@ exports.updateSchedule = async (businessId, id, body = {}, files = []) => {
   // audience
   setIf("audience_type", body.audience_type);
   setIf("to_number", body.to_number?.trim?.() || body.to_number);
-
-  // NEW: to_numbers_json
   setIf(
     "to_numbers_json",
     Array.isArray(body.to_numbers_json)
@@ -494,7 +930,6 @@ exports.updateSchedule = async (businessId, id, body = {}, files = []) => {
         })()
       : body.to_numbers_json
   );
-
   setIf(
     "customer_ids_json",
     Array.isArray(body.customer_ids_json)
@@ -510,10 +945,7 @@ exports.updateSchedule = async (businessId, id, body = {}, files = []) => {
         })()
       : body.customer_ids_json
   );
-
   setIf("category_id", body.category_id);
-
-  // NEW: category_ids_json
   setIf(
     "category_ids_json",
     Array.isArray(body.category_ids_json)
@@ -529,12 +961,37 @@ exports.updateSchedule = async (businessId, id, body = {}, files = []) => {
         })()
       : body.category_ids_json
   );
-
   setIf("template_id", body.template_id);
 
   // content
   setIf("body", body.body);
-  setIf("variables_json", body.variables_json ?? undefined);
+  setIf(
+    "messages_json",
+    body.messages_json === undefined
+      ? undefined
+      : Array.isArray(body.messages_json)
+      ? body.messages_json
+      : typeof body.messages_json === "string"
+      ? (() => {
+          const arr = toArrayOrNull(body.messages_json);
+          return arr;
+        })()
+      : null
+  );
+  setIf(
+    "variables_json",
+    body.variables_json === undefined
+      ? undefined
+      : typeof body.variables_json === "string"
+      ? (() => {
+          try {
+            return JSON.parse(body.variables_json);
+          } catch {
+            return null;
+          }
+        })()
+      : body.variables_json
+  );
 
   // schedule
   setIf("type", body.type);
@@ -546,31 +1003,134 @@ exports.updateSchedule = async (businessId, id, body = {}, files = []) => {
   setIf("timezone", isValidIana(body.timezone) ? body.timezone : undefined);
   setIf("status", body.status);
 
-  // media
+  // media (legacy, top-level only)
   const removeMedia =
     body.remove_media === 1 ||
     body.remove_media === "1" ||
     body.remove_media === true;
-
-  if (removeMedia) {
-    patch.media_url = null;
-  }
+  if (removeMedia) patch.media_url = null;
   if (Array.isArray(files) && files.length) {
     patch.media_url = await saveFiles(files);
   }
 
-  // recompute next_run_at based on effective values
-  const eff = {
-    type: patch.type ?? row.type,
-    cron_expr: patch.cron_expr ?? row.cron_expr,
-    timezone: patch.timezone ?? row.timezone,
-    send_at_utc: patch.send_at_utc ?? row.send_at_utc,
-    status: patch.status ?? row.status,
-  };
-  patch.next_run_at = await computeNextRunAsync(eff);
-
   await row.update(patch);
-  return row.toJSON();
+
+  // ----- items operations (optional) -----
+  const replaceAll = body.items_replace === true || body.items_replace === "1";
+
+  const upserts = normalizeItemsInput(body.items_upsert || []);
+  const toCreate = normalizeItemsInput(body.items || body.items_json || []);
+  const deleteIds = Array.isArray(body.items_delete_ids)
+    ? body.items_delete_ids
+    : typeof body.items_delete_ids === "string"
+    ? (() => {
+        try {
+          const arr = JSON.parse(body.items_delete_ids);
+          return Array.isArray(arr) ? arr : [];
+        } catch {
+          return [];
+        }
+      })()
+    : [];
+
+  if (replaceAll) {
+    await ScheduledMessageItem.destroy({
+      where: { scheduled_message_id: row.id },
+    });
+
+    // per-item files for replacement set
+    for (let i = 0; i < toCreate.length; i++) {
+      const bucket = itemFilesByIndex.get(i);
+      // clear media if asked
+      if (toCreate[i].__remove_existing) {
+        toCreate[i].media_url = null;
+        toCreate[i].media_json = null;
+      }
+      if (Array.isArray(bucket) && bucket.length) {
+        const urlsJson = await saveFiles(bucket);
+        if (urlsJson) toCreate[i].media_url = urlsJson;
+      }
+      toCreate[i].scheduled_message_id = row.id;
+    }
+    if (toCreate.length) {
+      await ScheduledMessageItem.bulkCreate(toCreate, {
+        ignoreDuplicates: true,
+      });
+    }
+  } else {
+    if (deleteIds.length) {
+      await ScheduledMessageItem.destroy({
+        where: { id: { [Op.in]: deleteIds }, scheduled_message_id: row.id },
+      });
+    }
+
+    if (upserts.length) {
+      for (let i = 0; i < upserts.length; i++) {
+        const it = upserts[i];
+
+        // clear existing media if requested
+        if (it.__remove_existing) {
+          it.media_url = null;
+          it.media_json = null;
+        }
+
+        // apply uploaded files for this item index
+        const bucket = itemFilesByIndex.get(i);
+        if (Array.isArray(bucket) && bucket.length) {
+          const urlsJson = await saveFiles(bucket);
+          if (urlsJson) it.media_url = urlsJson;
+        }
+
+        if (!it.id) it.id = uuidv4();
+        it.scheduled_message_id = row.id;
+
+        const [count] = await ScheduledMessageItem.update(
+          {
+            order_index: it.order_index,
+            offset_seconds: it.offset_seconds,
+            enabled: it.enabled,
+            template_id: it.template_id,
+            body: it.body,
+            messages_json: it.messages_json,
+            media_url: it.media_url ?? null,
+            media_json: it.media_json ?? null,
+            variables_json: it.variables_json ?? null,
+          },
+          { where: { id: it.id, scheduled_message_id: row.id } }
+        );
+        if (!count) {
+          await ScheduledMessageItem.create(it);
+        }
+      }
+    }
+
+    if (toCreate.length) {
+      for (let i = 0; i < toCreate.length; i++) {
+        const bucket = itemFilesByIndex.get(i);
+        if (toCreate[i].__remove_existing) {
+          toCreate[i].media_url = null;
+          toCreate[i].media_json = null;
+        }
+        if (Array.isArray(bucket) && bucket.length) {
+          const urlsJson = await saveFiles(bucket);
+          if (urlsJson) toCreate[i].media_url = urlsJson;
+        }
+        toCreate[i].scheduled_message_id = row.id;
+      }
+      await ScheduledMessageItem.bulkCreate(toCreate, {
+        ignoreDuplicates: true,
+      });
+    }
+  }
+
+  // recompute next_run_at
+  const items = await loadItemsForSchedule(row.id);
+  const nextRun = await computeInitialNextRun(row.toJSON(), items);
+  await row.update({ next_run_at: nextRun });
+
+  const out = row.toJSON();
+  out.items = items.map((i) => i.toJSON());
+  return out;
 };
 
 /* ---------------- status ---------------- */
@@ -581,15 +1141,15 @@ exports.setStatus = async (businessId, id, newStatus) => {
   if (!["ACTIVE", "PAUSED", "CANCELLED"].includes(newStatus)) {
     throw new Error("Invalid status");
   }
-  const next_run_at = await computeNextRunAsync({
-    type: row.type,
-    cron_expr: row.cron_expr,
-    timezone: row.timezone,
-    send_at_utc: row.send_at_utc,
-    status: newStatus,
-  });
-  await row.update({ status: newStatus, next_run_at });
-  return row.toJSON();
+  const items = await loadItemsForSchedule(row.id);
+  const next =
+    newStatus === "ACTIVE"
+      ? await computeInitialNextRun(row.toJSON(), items)
+      : null;
+  await row.update({ status: newStatus, next_run_at: next });
+  const out = row.toJSON();
+  out.items = items.map((i) => i.toJSON());
+  return out;
 };
 
 /* ---------------- delete ---------------- */
@@ -597,7 +1157,7 @@ exports.deleteSchedule = async (businessId, id) => {
   const row = await ScheduledMessage.findByPk(id);
   if (!row || row.business_id !== businessId)
     throw new Error("Schedule not found");
-  await row.destroy();
+  await row.destroy(); // CASCADE removes items
   return { message: "Schedule deleted successfully" };
 };
 
@@ -639,34 +1199,37 @@ exports.previewNextRuns = async (
   return results;
 };
 
-/* ---------------- run now (send + advance) ---------------- */
+/* ---------------- run now ---------------- */
 exports.runNow = async (businessId, id) => {
   const row = await ScheduledMessage.findByPk(id);
   if (!row || row.business_id !== businessId)
     throw new Error("Schedule not found");
   if (row.status !== "ACTIVE") return row.toJSON();
 
-  const sendResult = await deliverSchedule(row);
-
   const now = new Date();
-  const patch = { last_run_at: now };
+  const items = await loadItemsForSchedule(row.id);
 
-  if (row.type === "CRON") {
-    patch.next_run_at = await computeNextRunAsync({
-      type: "CRON",
-      cron_expr: row.cron_expr,
-      timezone: row.timezone,
-      status: row.status,
-    });
-  } else {
-    patch.next_run_at = null;
+  // Determine base tick:
+  let base = null;
+  if (row.type === "ONE_OFF") {
+    base = row.send_at_utc ? new Date(row.send_at_utc) : null;
+  } else if (row.type === "CRON") {
+    base = await computePrevCron(row, now);
   }
 
+  const sendBundle = await deliverItemsForBase(row, items, base || now, now);
+
+  const patch = { last_run_at: now };
+  patch.next_run_at = await computePostRunNextRun(row, items, now);
   await row.update(patch);
-  return { ...row.toJSON(), sendResult };
+
+  const out = row.toJSON();
+  out.sendResult = sendBundle;
+  out.items = (await loadItemsForSchedule(row.id)).map((i) => i.toJSON());
+  return out;
 };
 
-/* ---------------- dispatcher: scan & send due ---------------- */
+/* ---------------- dispatcher ---------------- */
 exports.dispatchDueSchedules = async (max = 25) => {
   const now = new Date();
 
@@ -695,7 +1258,12 @@ exports.dispatchDueSchedules = async (max = 25) => {
   for (const row of rows) {
     try {
       const r = await exports.runNow(row.business_id, row.id);
-      results.push({ id: row.id, ok: true, result: r.sendResult || null });
+      results.push({
+        id: row.id,
+        ok: true,
+        next_run_at: r.next_run_at,
+        result: r.sendResult || null,
+      });
     } catch (e) {
       results.push({ id: row.id, ok: false, error: e.message });
     }

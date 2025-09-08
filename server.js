@@ -24,7 +24,13 @@ app.disable("x-powered-by");
 // Respect proxies (e.g., if behind Nginx). Use a number or 'loopback'/'uniquelocal' etc.
 if (process.env.TRUST_PROXY) app.set("trust proxy", process.env.TRUST_PROXY);
 
+// Helmet site-wide. This sets CORP: same-origin by default.
+// We'll override CORP to `cross-origin` *only* for /uploads below.
 app.use(helmet());
+
+// Optional: keep COEP relaxed if you enabled it elsewhere
+// app.use(helmet.crossOriginEmbedderPolicy({ policy: "credentialless" }));
+
 app.use(compression());
 
 /* ---------- Parsers ---------- */
@@ -34,6 +40,8 @@ app.use(
 );
 
 /* ---------- CORS ---------- */
+// In dev you can allow all by leaving CORS_ORIGINS unset.
+// If you set it, it should be a comma-separated list of allowed origins.
 const corsOrigins = process.env.CORS_ORIGINS
   ? process.env.CORS_ORIGINS.split(",").map((s) => s.trim())
   : true; // allow all in dev by default
@@ -43,11 +51,47 @@ app.use(cors({ origin: corsOrigins, credentials: true }));
 app.use(morgan("combined", { stream: winston.stream }));
 
 /* ---------- Static uploads (serves /uploads/...) ---------- */
+/**
+ * Fix for: net::ERR_BLOCKED_BY_RESPONSE.NotSameOrigin
+ * Helmet globally sets: Cross-Origin-Resource-Policy: same-origin
+ * That blocks <img src="http://localhost:5550/uploads/..."> from a different origin/port (e.g., :5555).
+ * Here we override CORP to `cross-origin` for this route and add friendly cache/CORS headers.
+ */
+const uploadsDir = path.join(process.cwd(), "uploads");
+
 app.use(
   "/uploads",
-  express.static(path.join(process.cwd(), "uploads"), {
+  // Override CORP for just this route
+  helmet.crossOriginResourcePolicy({ policy: "cross-origin" }),
+  // Optional: if you want the opener policy relaxed for static too
+  // helmet.crossOriginOpenerPolicy({ policy: "same-origin-allow-popups" }),
+  express.static(uploadsDir, {
     fallthrough: true,
     maxAge: process.env.UPLOADS_MAX_AGE || "1h",
+    // Add helpful headers for static assets
+    setHeaders: (res, filePath) => {
+      // Keep CORP permissive here as well (in case another middleware set it)
+      res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+
+      // If you want the files embeddable anywhere, allow all origins for static.
+      // (Safe for <img>, <video>, etc.; doesn't grant JS access unless you fetch())
+      const staticCorsOrigin = process.env.UPLOADS_CORS_ORIGIN || "*";
+      res.setHeader("Access-Control-Allow-Origin", staticCorsOrigin);
+
+      // Basic content security hinting via cache control
+      const isImmutable =
+        process.env.UPLOADS_IMMUTABLE === "1" ||
+        process.env.UPLOADS_IMMUTABLE === "true";
+      if (isImmutable) {
+        // E.g., when filenames are content-hashed
+        res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+      } else {
+        res.setHeader(
+          "Cache-Control",
+          `public, max-age=${Number(process.env.UPLOADS_CACHE_SECONDS) || 3600}`
+        );
+      }
+    },
   })
 );
 

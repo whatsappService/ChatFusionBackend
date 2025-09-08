@@ -43,7 +43,7 @@ router.post(
   authenticateUser,
   requireFeature("single_messages"),
   requirePermission("messages.send.single"),
-  upload.array("files", 10),
+  upload.any(),
   requireMediaIfFiles,
   messageController.sendSingleMessage
 );

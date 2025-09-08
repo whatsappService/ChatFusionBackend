@@ -1,4 +1,3 @@
-// src/routes/schedules.js
 "use strict";
 
 const express = require("express");

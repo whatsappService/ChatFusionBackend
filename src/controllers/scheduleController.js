@@ -1,4 +1,3 @@
-// src/controllers/scheduleController.js
 "use strict";
 
 const svc = require("../services/scheduleService");
@@ -11,23 +10,28 @@ const {
 /**
  * POST /api/schedules
  * Body may include:
- *  - type: "ONE_OFF" | "CRON"
- *  - send_at_local (ISO without Z) + timezone  -> converted to send_at_utc
- *  - OR send_at_utc (ISO with Z)
- *  - cron_expr (for CRON)
- *  - variables_json, body, to_number, status, etc.
+ *  - audience:
+ *      audience_type: "TO_NUMBER" | "CUSTOMERS" | "CATEGORY"
+ *      to_number (legacy single) OR to_numbers_json (array of recipients)
+ *      customer_ids_json (array)
+ *      category_id (legacy single) OR category_ids_json (array)
+ *  - content: template_id?, body, variables_json?
+ *  - media: files[] (multipart), remove_media? (on PATCH)
+ *  - schedule:
+ *      type: "ONE_OFF" | "CRON"
+ *      send_at_local (ISO without Z) + timezone  -> converted to send_at_utc
+ *      OR send_at_utc (ISO with Z)
+ *      cron_expr (for CRON)
+ *  - status: "ACTIVE" | "PAUSED" | "CANCELLED"
  */
 exports.createSchedule = async (req, res, next) => {
   try {
-    // Resolve request TZ (query/body/header -> user -> business -> fallback)
     const tz = pickTimezone(req);
 
-    // Ensure a valid timezone ends up on the row
     if (!req.body.timezone || !isValidIana(req.body.timezone)) {
       req.body.timezone = tz;
     }
 
-    // If a ONE_OFF arrived with local wall-clock, convert to UTC
     if (
       req.body.type === "ONE_OFF" &&
       !req.body.send_at_utc &&
@@ -51,11 +55,6 @@ exports.createSchedule = async (req, res, next) => {
   }
 };
 
-/**
- * GET /api/schedules
- * Optional: ?timezone= to get *_local convenience fields in that tz
- * If not supplied/invalid, we fall back to user/business/server tz.
- */
 exports.listSchedules = async (req, res, next) => {
   try {
     const tz = isValidIana(req.query.timezone)
@@ -71,10 +70,6 @@ exports.listSchedules = async (req, res, next) => {
   }
 };
 
-/**
- * GET /api/schedules/:id
- * Optional: ?timezone= for local convenience fields
- */
 exports.getSchedule = async (req, res, next) => {
   try {
     const tz = isValidIana(req.query.timezone)
@@ -91,11 +86,6 @@ exports.getSchedule = async (req, res, next) => {
   }
 };
 
-/**
- * PATCH /api/schedules/:id
- * Accepts same fields as create.
- * Handles send_at_local -> send_at_utc conversion if present.
- */
 exports.updateSchedule = async (req, res, next) => {
   try {
     const tz = pickTimezone(req);
@@ -126,7 +116,6 @@ exports.updateSchedule = async (req, res, next) => {
   }
 };
 
-/** POST /api/schedules/:id/pause */
 exports.pauseSchedule = async (req, res, next) => {
   try {
     res.json(
@@ -137,7 +126,6 @@ exports.pauseSchedule = async (req, res, next) => {
   }
 };
 
-/** POST /api/schedules/:id/resume */
 exports.resumeSchedule = async (req, res, next) => {
   try {
     res.json(
@@ -148,7 +136,6 @@ exports.resumeSchedule = async (req, res, next) => {
   }
 };
 
-/** POST /api/schedules/:id/cancel */
 exports.cancelSchedule = async (req, res, next) => {
   try {
     res.json(
@@ -159,7 +146,6 @@ exports.cancelSchedule = async (req, res, next) => {
   }
 };
 
-/** DELETE /api/schedules/:id */
 exports.deleteSchedule = async (req, res, next) => {
   try {
     res.json(await svc.deleteSchedule(req.user.business_id, req.params.id));
@@ -168,11 +154,6 @@ exports.deleteSchedule = async (req, res, next) => {
   }
 };
 
-/**
- * POST /api/schedules/preview
- * Body accepts { cron_expr | cron | expression, timezone?, count?, from? }
- * If timezone missing/invalid → fallback chain.
- */
 exports.previewNextRuns = async (req, res, next) => {
   try {
     let {
@@ -212,7 +193,6 @@ exports.previewNextRuns = async (req, res, next) => {
   }
 };
 
-/** POST /api/schedules/:id/run-now */
 exports.runNow = async (req, res, next) => {
   try {
     res.json(await svc.runNow(req.user.business_id, req.params.id));

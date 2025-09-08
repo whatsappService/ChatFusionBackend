@@ -4,22 +4,25 @@ const { Op } = require("sequelize");
 const path = require("path");
 const fs = require("fs").promises;
 const { v4: uuidv4 } = require("uuid");
+
 const ScheduledMessage = require("../models/scheduledMessage");
+const Customer = require("../models/customer");
+const MessageTemplate = require("../models/messageTemplate");
+
 const { isValidIana, toLocalISO } = require("../utils/timezone");
-const messageService = require("./messageService"); // ⬅️ use your sender
+const messageService = require("./messageService");
 
 const UPLOAD_DIR = path.join(process.cwd(), "uploads", "schedules");
 const SERVER_TZ = process.env.SERVER_DEFAULT_TZ || "Asia/Hebron";
 
 /* ---------------- cron-parser loader (CJS/ESM safe) ---------------- */
-let _parseCronFn = null; // resolved function
-let _cronTried = false; // ensure we try only once
+let _parseCronFn = null;
+let _cronTried = false;
 
 async function loadCronParser() {
   if (_cronTried) return _parseCronFn;
   _cronTried = true;
 
-  // Try CJS require first
   try {
     // eslint-disable-next-line global-require
     const mod = require("cron-parser");
@@ -29,7 +32,6 @@ async function loadCronParser() {
       _parseCronFn = mod.default.parseExpression;
   } catch (_) {}
 
-  // Fallback: dynamic import (ESM)
   if (!_parseCronFn) {
     try {
       const mod = await import("cron-parser");
@@ -64,7 +66,6 @@ async function saveFiles(files) {
   return JSON.stringify(urls);
 }
 
-/** Load previously saved files back to buffers for sending */
 async function loadSavedFiles(media_url) {
   const list = [];
   if (!media_url) return list;
@@ -79,22 +80,20 @@ async function loadSavedFiles(media_url) {
 
   for (const p of arr) {
     if (!p || typeof p !== "string") continue;
-    // stored like "/uploads/schedules/<name>"
-    const rel = p.replace(/^\/+/, ""); // strip leading slash
+    const rel = p.replace(/^\/+/, "");
     const full = path.join(process.cwd(), rel);
     const name = path.basename(full);
     try {
       const buffer = await fs.readFile(full);
       list.push({ buffer, originalname: name });
     } catch {
-      // ignore missing files
+      // ignore missing
     }
   }
   return list;
 }
 
-/* ---------------- helpers: text templating ---------------- */
-/** Replace {key} in text from a plain object of variables (case-insensitive) */
+/* ---------------- helpers: templating ---------------- */
 function applyVars(text, vars) {
   if (!text || !vars || typeof vars !== "object") return text || "";
   const dict = Object.keys(vars).reduce((acc, k) => {
@@ -105,6 +104,13 @@ function applyVars(text, vars) {
     const key = String(rawKey).toLowerCase();
     return dict[key] != null ? String(dict[key]) : `{${rawKey}}`;
   });
+}
+
+function pickTemplateBody(tpl) {
+  if (!tpl) return null;
+  return (
+    tpl.body || tpl.content || tpl.message || tpl.text || tpl.text_body || null
+  );
 }
 
 /* ---------------- helpers: schedule logic ---------------- */
@@ -155,46 +161,190 @@ function withLocalFields(row, tz) {
   };
 }
 
-/* ---------------- core sender for a single schedule ---------------- */
-/**
- * Sends the message of a schedule row.
- * - Uses variables_json for {placeholders} first
- * - Lets messageService also substitute {name} and {business_name}
- * - Reattaches any local media files saved during creation
- */
-async function sendScheduleMessage(row) {
-  const files = await loadSavedFiles(row.media_url);
-  const body = applyVars(row.body || "", row.variables_json || null);
-  const contents = [body];
+/* ---------------- audience resolver ---------------- */
+function normalizePhones(list) {
+  return Array.from(
+    new Set(
+      (Array.isArray(list) ? list : [])
+        .map((s) => String(s || "").replace(/\D/g, ""))
+        .filter((p) => p && /^\d+$/.test(p))
+    )
+  );
+}
 
-  // messageService handles business lookup + {name}/{business_name} internally
-  return messageService.sendSingleMessage(
+async function resolveRecipients(row) {
+  // TO_NUMBER → prefer to_numbers_json; fallback to to_number
+  if (row.audience_type === "TO_NUMBER") {
+    const arr =
+      Array.isArray(row.to_numbers_json) && row.to_numbers_json.length
+        ? row.to_numbers_json
+        : row.to_number
+        ? [row.to_number]
+        : [];
+    return normalizePhones(arr);
+  }
+
+  if (row.audience_type === "CUSTOMERS") {
+    const ids = Array.isArray(row.customer_ids_json)
+      ? row.customer_ids_json
+      : [];
+    if (!ids.length) return [];
+    const customers = await Customer.findAll({
+      where: { id: { [Op.in]: ids } },
+      attributes: ["whatsapp_number"],
+    });
+    return normalizePhones(customers.map((c) => c.whatsapp_number));
+  }
+
+  if (row.audience_type === "CATEGORY") {
+    const single = row.category_id ? [row.category_id] : [];
+    const group = Array.isArray(row.category_ids_json)
+      ? row.category_ids_json
+      : [];
+    const catIds = Array.from(new Set([...single, ...group].filter(Boolean)));
+    if (!catIds.length) return [];
+    const customers = await Customer.findAll({
+      where: { category_id: { [Op.in]: catIds } },
+      attributes: ["whatsapp_number"],
+      limit: 10000,
+    });
+    return normalizePhones(customers.map((c) => c.whatsapp_number));
+  }
+
+  return [];
+}
+
+/* ---------------- core sender ---------------- */
+async function deliverSchedule(row) {
+  // Base text: template overrides body
+  let baseText = row.body || "";
+  if (row.template_id) {
+    const tpl = await MessageTemplate.findByPk(row.template_id);
+    const candidate = pickTemplateBody(tpl);
+    if (candidate) baseText = candidate;
+  }
+
+  // Apply global variables_json once (e.g., {order_id}, etc.)
+  const textAfterGlobals = applyVars(baseText, row.variables_json || null);
+  const files = await loadSavedFiles(row.media_url);
+
+  const recipients = await resolveRecipients(row);
+  if (!recipients.length) {
+    return { success: false, message: "No recipients resolved", recipients: 0 };
+  }
+
+  // Try bulk path (messageService will fallback if personalization is needed)
+  const sendResult = await messageService.sendManySameMessage(
     row.business_id,
-    row.to_number,
-    contents,
+    recipients,
+    [textAfterGlobals],
     files
   );
+
+  const failedCount = Array.isArray(sendResult.failedMessages)
+    ? sendResult.failedMessages.length
+    : 0;
+
+  // Normalize schedule send result shape
+  return {
+    success: failedCount === 0,
+    recipients: recipients.length,
+    failed: failedCount,
+    results: sendResult.failedMessages || [],
+  };
 }
 
 /* ---------------- create ---------------- */
 exports.createSchedule = async (businessId, userId, body = {}, files = []) => {
   const {
-    to_number,
+    // audience
+    audience_type = "TO_NUMBER",
+    to_number = null,
+    to_numbers_json = null, // NEW (array)
+    customer_ids_json = null,
+    category_id = null,
+    category_ids_json = null, // NEW (array)
+    template_id = null,
+
+    // message
     body: msgBody = null,
+    variables_json = null,
+
+    // schedule
     type,
     send_at_utc = null,
     cron_expr = null,
     timezone = SERVER_TZ,
     status = "ACTIVE",
-    variables_json = null,
   } = body;
 
-  if (!to_number) throw new Error("to_number is required");
   if (!["ONE_OFF", "CRON"].includes(type)) throw new Error("Invalid type");
   if (type === "ONE_OFF" && !send_at_utc)
     throw new Error("send_at_utc is required for ONE_OFF");
   if (type === "CRON" && !cron_expr)
     throw new Error("cron_expr is required for CRON");
+
+  // audience validation (support arrays)
+  if (audience_type === "TO_NUMBER") {
+    const arr = Array.isArray(to_numbers_json)
+      ? to_numbers_json
+      : (() => {
+          try {
+            const parsed =
+              typeof to_numbers_json === "string"
+                ? JSON.parse(to_numbers_json)
+                : [];
+            return Array.isArray(parsed) ? parsed : [];
+          } catch {
+            return [];
+          }
+        })();
+    if (!(arr.length || to_number)) {
+      throw new Error(
+        "Provide to_number or to_numbers_json[] when audience_type=TO_NUMBER"
+      );
+    }
+  }
+  if (audience_type === "CUSTOMERS") {
+    const arr = Array.isArray(customer_ids_json)
+      ? customer_ids_json
+      : (() => {
+          try {
+            const parsed =
+              typeof customer_ids_json === "string"
+                ? JSON.parse(customer_ids_json)
+                : [];
+            return Array.isArray(parsed) ? parsed : [];
+          } catch {
+            return [];
+          }
+        })();
+    if (!arr.length) {
+      throw new Error(
+        "customer_ids_json (array) is required when audience_type=CUSTOMERS"
+      );
+    }
+  }
+  if (audience_type === "CATEGORY") {
+    const arr = Array.isArray(category_ids_json)
+      ? category_ids_json
+      : (() => {
+          try {
+            const parsed =
+              typeof category_ids_json === "string"
+                ? JSON.parse(category_ids_json)
+                : [];
+            return Array.isArray(parsed) ? parsed : [];
+          } catch {
+            return [];
+          }
+        })();
+    if (!(arr.length || category_id)) {
+      throw new Error(
+        "category_id or category_ids_json[] is required when audience_type=CATEGORY"
+      );
+    }
+  }
 
   const media_url = await saveFiles(files);
 
@@ -202,10 +352,60 @@ exports.createSchedule = async (businessId, userId, body = {}, files = []) => {
     id: uuidv4(),
     business_id: businessId,
     created_by_user: userId ?? null,
-    to_number: String(to_number).trim(),
+
+    // audience
+    audience_type,
+    to_number: to_number ? String(to_number).trim() : null,
+    to_numbers_json:
+      Array.isArray(to_numbers_json) || to_numbers_json == null
+        ? to_numbers_json
+        : (() => {
+            try {
+              const parsed =
+                typeof to_numbers_json === "string"
+                  ? JSON.parse(to_numbers_json)
+                  : null;
+              return parsed;
+            } catch {
+              return null;
+            }
+          })(),
+    customer_ids_json:
+      Array.isArray(customer_ids_json) || customer_ids_json == null
+        ? customer_ids_json
+        : (() => {
+            try {
+              const parsed =
+                typeof customer_ids_json === "string"
+                  ? JSON.parse(customer_ids_json)
+                  : null;
+              return parsed;
+            } catch {
+              return null;
+            }
+          })(),
+    category_id: category_id ?? null,
+    category_ids_json:
+      Array.isArray(category_ids_json) || category_ids_json == null
+        ? category_ids_json
+        : (() => {
+            try {
+              const parsed =
+                typeof category_ids_json === "string"
+                  ? JSON.parse(category_ids_json)
+                  : null;
+              return parsed;
+            } catch {
+              return null;
+            }
+          })(),
+
+    // message
     body: msgBody,
     media_url,
     variables_json: variables_json ?? null,
+
+    // schedule
     type,
     send_at_utc: send_at_utc ? new Date(send_at_utc) : null,
     cron_expr,
@@ -274,9 +474,69 @@ exports.updateSchedule = async (businessId, id, body = {}, files = []) => {
     if (v !== undefined) patch[k] = v;
   };
 
-  setIf("to_number", body.to_number?.trim());
+  // audience
+  setIf("audience_type", body.audience_type);
+  setIf("to_number", body.to_number?.trim?.() || body.to_number);
+
+  // NEW: to_numbers_json
+  setIf(
+    "to_numbers_json",
+    Array.isArray(body.to_numbers_json)
+      ? body.to_numbers_json
+      : typeof body.to_numbers_json === "string"
+      ? (() => {
+          try {
+            const parsed = JSON.parse(body.to_numbers_json);
+            return Array.isArray(parsed) ? parsed : undefined;
+          } catch {
+            return undefined;
+          }
+        })()
+      : body.to_numbers_json
+  );
+
+  setIf(
+    "customer_ids_json",
+    Array.isArray(body.customer_ids_json)
+      ? body.customer_ids_json
+      : typeof body.customer_ids_json === "string"
+      ? (() => {
+          try {
+            const parsed = JSON.parse(body.customer_ids_json);
+            return Array.isArray(parsed) ? parsed : undefined;
+          } catch {
+            return undefined;
+          }
+        })()
+      : body.customer_ids_json
+  );
+
+  setIf("category_id", body.category_id);
+
+  // NEW: category_ids_json
+  setIf(
+    "category_ids_json",
+    Array.isArray(body.category_ids_json)
+      ? body.category_ids_json
+      : typeof body.category_ids_json === "string"
+      ? (() => {
+          try {
+            const parsed = JSON.parse(body.category_ids_json);
+            return Array.isArray(parsed) ? parsed : undefined;
+          } catch {
+            return undefined;
+          }
+        })()
+      : body.category_ids_json
+  );
+
+  setIf("template_id", body.template_id);
+
+  // content
   setIf("body", body.body);
   setIf("variables_json", body.variables_json ?? undefined);
+
+  // schedule
   setIf("type", body.type);
   setIf(
     "send_at_utc",
@@ -286,10 +546,20 @@ exports.updateSchedule = async (businessId, id, body = {}, files = []) => {
   setIf("timezone", isValidIana(body.timezone) ? body.timezone : undefined);
   setIf("status", body.status);
 
+  // media
+  const removeMedia =
+    body.remove_media === 1 ||
+    body.remove_media === "1" ||
+    body.remove_media === true;
+
+  if (removeMedia) {
+    patch.media_url = null;
+  }
   if (Array.isArray(files) && files.length) {
     patch.media_url = await saveFiles(files);
   }
 
+  // recompute next_run_at based on effective values
   const eff = {
     type: patch.type ?? row.type,
     cron_expr: patch.cron_expr ?? row.cron_expr,
@@ -376,10 +646,8 @@ exports.runNow = async (businessId, id) => {
     throw new Error("Schedule not found");
   if (row.status !== "ACTIVE") return row.toJSON();
 
-  // 1) Send
-  const result = await sendScheduleMessage(row);
+  const sendResult = await deliverSchedule(row);
 
-  // 2) Advance pointers regardless of send success (you can change policy)
   const now = new Date();
   const patch = { last_run_at: now };
 
@@ -391,32 +659,21 @@ exports.runNow = async (businessId, id) => {
       status: row.status,
     });
   } else {
-    patch.next_run_at = null; // one-off—no further runs
-    // Optionally auto-cancel after run:
-    // patch.status = "CANCELLED";
+    patch.next_run_at = null;
   }
 
   await row.update(patch);
-  return { ...row.toJSON(), sendResult: result };
+  return { ...row.toJSON(), sendResult };
 };
 
 /* ---------------- dispatcher: scan & send due ---------------- */
-/**
- * Process due schedules.
- * - CRON: next_run_at <= now
- * - ONE_OFF: (next_run_at <= now) OR (next_run_at IS NULL AND send_at_utc <= now AND last_run_at IS NULL)
- * Note: This is a simple, single-process loop. For multi-process safety,
- * add row-level locks/claims (e.g. a `locked_until` column) or run one worker.
- */
 exports.dispatchDueSchedules = async (max = 25) => {
   const now = new Date();
 
   const where = {
     status: "ACTIVE",
     [Op.or]: [
-      // any due by next_run_at
       { next_run_at: { [Op.lte]: now } },
-      // safety for one-offs created in the past without next_run_at set
       {
         [Op.and]: [
           { type: "ONE_OFF" },

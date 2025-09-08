@@ -1,4 +1,3 @@
-// src/migrations/XXXXXX_seed_core_with_usage.js
 "use strict";
 
 const bcrypt = require("bcryptjs");
@@ -49,7 +48,7 @@ module.exports = {
         password_hash,
         business_id,
         default_package_id = null,
-        timezone = DEFAULT_TZ, // <-- NEW
+        timezone = DEFAULT_TZ,
       }) => {
         await sequelize.query(
           `INSERT INTO \`Users\`
@@ -68,7 +67,7 @@ module.exports = {
               email_address,
               phone_number,
               password_hash,
-              timezone, // <-- NEW
+              timezone,
               business_id,
               default_package_id,
             ],
@@ -242,7 +241,7 @@ module.exports = {
         }
       };
 
-      // ---------- DDL: PermissionCatalog + helpful indexes ----------
+      // ---------- DDL: PermissionCatalog ----------
       await sequelize.query(
         `CREATE TABLE IF NOT EXISTS \`PermissionCatalog\` (
           \`perm\`        VARCHAR(191) NOT NULL,
@@ -283,7 +282,7 @@ module.exports = {
         "ALTER TABLE `UserPermissions` ADD UNIQUE KEY `u_user_perm` (`user_id`,`perm`);"
       );
 
-      // ---------- DDL: Global MessagesPlaceholders (idempotent) ----------
+      // ---------- DDL: Global MessagesPlaceholders ----------
       await sequelize.query(
         `CREATE TABLE IF NOT EXISTS \`MessagesPlaceholders\` (
           \`id\`            INT NOT NULL AUTO_INCREMENT,
@@ -303,7 +302,7 @@ module.exports = {
         { transaction: t }
       );
 
-      // ---------- Remove legacy column from MessageTemplates (idempotent) ----------
+      // Remove legacy column from MessageTemplates (idempotent)
       await tryExec(
         "ALTER TABLE `MessageTemplates` DROP COLUMN `placeholders`"
       );
@@ -360,7 +359,7 @@ module.exports = {
         password_hash: pwdHash,
         business_id: superBusiness.id,
         default_package_id: null,
-        timezone: DEFAULT_TZ, // <-- NEW
+        timezone: DEFAULT_TZ,
       });
 
       const messengerUser = await upsertUserByEmail({
@@ -370,7 +369,7 @@ module.exports = {
         password_hash: pwdHash,
         business_id: superBusiness.id,
         default_package_id: null,
-        timezone: DEFAULT_TZ, // <-- NEW
+        timezone: DEFAULT_TZ,
       });
 
       const basicUser = await upsertUserByEmail({
@@ -380,7 +379,7 @@ module.exports = {
         password_hash: pwdHash,
         business_id: superBusiness.id,
         default_package_id: null,
-        timezone: DEFAULT_TZ, // <-- NEW
+        timezone: DEFAULT_TZ,
       });
 
       const reportsUser = await upsertUserByEmail({
@@ -390,7 +389,7 @@ module.exports = {
         password_hash: pwdHash,
         business_id: superBusiness.id,
         default_package_id: null,
-        timezone: DEFAULT_TZ, // <-- NEW
+        timezone: DEFAULT_TZ,
       });
 
       const customUser = await upsertUserByEmail({
@@ -400,7 +399,7 @@ module.exports = {
         password_hash: pwdHash,
         business_id: superBusiness.id,
         default_package_id: null,
-        timezone: DEFAULT_TZ, // <-- NEW
+        timezone: DEFAULT_TZ,
       });
 
       // ---------- 4) features ----------
@@ -484,6 +483,7 @@ module.exports = {
       });
 
       // ---------- 7) permission catalog ----------
+      // Added "categories.read" under the "customers" feature.
       const PERMISSIONS_BY_FEATURE = {
         single_messages: ["messages.read", "messages.send.single"],
         bulk_send: ["messages.read", "messages.send.bulk"],
@@ -502,6 +502,7 @@ module.exports = {
           "customers.template.download",
           "customers.sync",
           "customers.import",
+          "categories.read", // <-- NEW
         ],
         templates: [
           "templates.read",
@@ -549,7 +550,7 @@ module.exports = {
         for (const p of perms) await upsertCatalog(fcode, p);
       }
 
-      // ---------- 8) Admin: all features + all perms + wildcard ----------
+      // ---------- 8) Admin: all features + all perms (now includes categories.read) + wildcard ----------
       for (const code of Object.keys(featureMap)) {
         await upsertPackageFeature({
           package_id: adminPkg.id,
@@ -563,7 +564,7 @@ module.exports = {
       }
       await upsertPackagePerm({ package_id: adminPkg.id, perm: "*" });
 
-      // ---------- 9) User: single + media + customers/templates (read) ----------
+      // ---------- 9) User defaults ----------
       await upsertPackageFeature({
         package_id: userPkg.id,
         feature_id: fid("single_messages"),
@@ -824,7 +825,7 @@ module.exports = {
         }
       }
 
-      // ---------- 14) Message templates (UPDATED: no `placeholders` column) ----------
+      // ---------- 14) Message templates (no `placeholders` column) ----------
       const systemTemplates = [
         {
           business_id: null,
@@ -1135,19 +1136,66 @@ module.exports = {
         );
       }
 
-      // ---------- 16) sample scheduled messages ----------
+      // Fetch inserted customers' IDs for schedules
+      const [johnRows] = await sequelize.query(
+        "SELECT id FROM `Customers` WHERE user_id=? AND whatsapp_number=? LIMIT 1",
+        { replacements: [superAdmin.id, "+1234567890"], transaction: t }
+      );
+      const [janeRows] = await sequelize.query(
+        "SELECT id FROM `Customers` WHERE user_id=? AND whatsapp_number=? LIMIT 1",
+        { replacements: [superAdmin.id, "+9876543210"], transaction: t }
+      );
+      const johnId = johnRows[0]?.id || null;
+      const janeId = janeRows[0]?.id || null;
+
+      // ---------- 16) sample scheduled messages (UPDATED for multi recipients + multi media) ----------
       const now = new Date();
       const in20m = new Date(now.getTime() + 20 * 60 * 1000);
       const in5m = new Date(now.getTime() + 5 * 60 * 1000);
 
+      // demo media
+      const demoMedia1 = [
+        {
+          url: "https://cdn.example.com/welcome.png",
+          mime_type: "image/png",
+          name: "welcome.png",
+          size_bytes: 12543,
+        },
+        {
+          url: "https://cdn.example.com/offer.pdf",
+          mime_type: "application/pdf",
+          name: "offer.pdf",
+          size_bytes: 78543,
+        },
+      ];
+      const demoMedia2 = [
+        {
+          url: "https://cdn.example.com/invoice.docx",
+          mime_type:
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          name: "invoice.docx",
+          size_bytes: 45231,
+        },
+      ];
+
+      // three samples:
+      // 1) TO_NUMBER with multi numbers (to_numbers_json) + multi media
+      // 2) CUSTOMERS with multi customer ids (no media)
+      // 3) CATEGORY with multi category ids (with one media)
       const samples = [
         {
           id: "c0ffee00-0000-4000-8000-000000000001",
           business_id: superBusiness.id,
           created_by_user: superAdmin.id,
-          to_number: "+15550123456",
-          body: "Hello from seed! (ONE_OFF) See you soon.",
-          media_url: null,
+          audience_type: "TO_NUMBER",
+          to_number: "+15550123456", // legacy single
+          to_numbers_json: JSON.stringify(["+15550123456", "+15550123457"]),
+          customer_ids_json: null,
+          category_id: null,
+          category_ids_json: null,
+          body: "Hello from seed! (ONE_OFF) See you soon, {first_name}.",
+          media_url: JSON.stringify(demoMedia1.map((m) => m.url)), // legacy
+          media_json: JSON.stringify(demoMedia1), // NEW
           variables_json: JSON.stringify({ first_name: "Seed User" }),
           type: "ONE_OFF",
           send_at_utc: in20m,
@@ -1162,10 +1210,19 @@ module.exports = {
           id: "c0ffee00-0000-4000-8000-000000000002",
           business_id: superBusiness.id,
           created_by_user: superAdmin.id,
-          to_number: "+15550987654",
-          body: "Hello from seed! (CRON */5 * * * *)",
+          audience_type: "CUSTOMERS",
+          to_number: null,
+          to_numbers_json: null,
+          customer_ids_json:
+            johnId && janeId
+              ? JSON.stringify([johnId, janeId])
+              : JSON.stringify([]),
+          category_id: null,
+          category_ids_json: null,
+          body: "Hello {first_name}! This CRON hits every 5 minutes.",
           media_url: null,
-          variables_json: JSON.stringify({ campaign: "welcome" }),
+          media_json: null,
+          variables_json: JSON.stringify({ first_name: "Friend" }),
           type: "CRON",
           send_at_utc: null,
           cron_expr: "*/5 * * * *",
@@ -1175,25 +1232,57 @@ module.exports = {
           next_run_at: in5m,
           max_attempts: 3,
         },
+        {
+          id: "c0ffee00-0000-4000-8000-000000000003",
+          business_id: superBusiness.id,
+          created_by_user: superAdmin.id,
+          audience_type: "CATEGORY",
+          to_number: null,
+          to_numbers_json: null,
+          customer_ids_json: null,
+          category_id: null,
+          category_ids_json: JSON.stringify([catMap["Regular"], catMap["VIP"]]),
+          body: "Hi {first_name}, this goes to Regular & VIP categories every day at 09:00.",
+          media_url: JSON.stringify(demoMedia2.map((m) => m.url)), // legacy
+          media_json: JSON.stringify(demoMedia2), // NEW
+          variables_json: JSON.stringify({ first_name: "Customer" }),
+          type: "CRON",
+          send_at_utc: null,
+          cron_expr: "0 9 * * *",
+          timezone: DEFAULT_TZ,
+          status: "ACTIVE",
+          last_run_at: null,
+          next_run_at: null, // computed by app at runtime
+          max_attempts: 3,
+        },
       ];
 
       for (const s of samples) {
         await sequelize.query(
           `INSERT INTO \`ScheduledMessages\`
-           (id, business_id, created_by_user, to_number, body, media_url, variables_json, type, send_at_utc, cron_expr, timezone, status, last_run_at, next_run_at, max_attempts, createdAt, updatedAt)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
-           ON DUPLICATE KEY UPDATE business_id=VALUES(business_id), created_by_user=VALUES(created_by_user), to_number=VALUES(to_number),
-             body=VALUES(body), media_url=VALUES(media_url), variables_json=VALUES(variables_json), type=VALUES(type), send_at_utc=VALUES(send_at_utc),
-             cron_expr=VALUES(cron_expr), timezone=VALUES(timezone), status=VALUES(status), last_run_at=VALUES(last_run_at), next_run_at=VALUES(next_run_at),
-             max_attempts=VALUES(max_attempts), updatedAt=VALUES(updatedAt)`,
+     (id, business_id, created_by_user, audience_type, to_number, to_numbers_json, customer_ids_json, category_id, category_ids_json, body, media_url, media_json, variables_json, type, send_at_utc, cron_expr, timezone, status, last_run_at, next_run_at, max_attempts, createdAt, updatedAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+     ON DUPLICATE KEY UPDATE business_id=VALUES(business_id), created_by_user=VALUES(created_by_user),
+       audience_type=VALUES(audience_type), to_number=VALUES(to_number), to_numbers_json=VALUES(to_numbers_json),
+       customer_ids_json=VALUES(customer_ids_json), category_id=VALUES(category_id), category_ids_json=VALUES(category_ids_json),
+       body=VALUES(body), media_url=VALUES(media_url), media_json=VALUES(media_json), variables_json=VALUES(variables_json),
+       type=VALUES(type), send_at_utc=VALUES(send_at_utc), cron_expr=VALUES(cron_expr),
+       timezone=VALUES(timezone), status=VALUES(status), last_run_at=VALUES(last_run_at), next_run_at=VALUES(next_run_at),
+       max_attempts=VALUES(max_attempts), updatedAt=VALUES(updatedAt)`,
           {
             replacements: [
               s.id,
               s.business_id,
               s.created_by_user,
+              s.audience_type,
               s.to_number,
+              s.to_numbers_json,
+              s.customer_ids_json,
+              s.category_id,
+              s.category_ids_json,
               s.body,
               s.media_url,
+              s.media_json,
               s.variables_json,
               s.type,
               s.send_at_utc,
@@ -1218,6 +1307,7 @@ module.exports = {
           [/^schedules\./, "scheduled_messages"],
           [/^media\./, "media_attachments"],
           [/^customers\./, "customers"],
+          [/^categories\.read$/, "customers"], // map categories.read to customers feature
           [/^templates\./, "templates"],
           [/^users\./, "users"],
           [/^(team\.manage|multiuser\.manage)$/, "users"],
@@ -1288,11 +1378,12 @@ module.exports = {
 
       // Clean scheduled messages
       await sequelize.query(
-        "DELETE FROM `ScheduledMessages` WHERE id IN (?, ?)",
+        "DELETE FROM `ScheduledMessages` WHERE id IN (?, ?, ?)",
         {
           replacements: [
             "c0ffee00-0000-4000-8000-000000000001",
             "c0ffee00-0000-4000-8000-000000000002",
+            "c0ffee00-0000-4000-8000-000000000003",
           ],
           transaction: t,
         }
@@ -1421,6 +1512,10 @@ module.exports = {
         "customers.create",
         "customers.update",
         "customers.delete",
+        "customers.template.download",
+        "customers.sync",
+        "customers.import",
+        "categories.read", // <-- NEW
         "templates.read",
         "templates.create",
         "templates.update",

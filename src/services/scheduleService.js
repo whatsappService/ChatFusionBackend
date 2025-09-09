@@ -458,7 +458,7 @@ function _normalizeAttachmentEntry(entry) {
     if (!url) return null;
     return {
       url,
-      name: entry.name || (String(url).split("/").pop() || null),
+      name: entry.name || String(url).split("/").pop() || null,
       mime_type: entry.mime_type || entry.type || null,
       size_bytes:
         entry.size_bytes != null
@@ -548,8 +548,13 @@ function collectBodiesFromRowAndItems(row, items = []) {
   return out;
 }
 
-/* ---------------- core sender ---------------- */
-async function deliverItemsForBase(row, items, base, now = new Date()) {
+/* ---------------- core sender ---------------- */ async function deliverItemsForBase(
+  row,
+  items,
+  base,
+  now = new Date()
+) {
+  // Figure out which items are due on this base tick
   const dueItems = (items || []).filter((it) => {
     if (it.enabled === false) return false;
     const off = Number(it.offset_seconds) || 0;
@@ -559,16 +564,18 @@ async function deliverItemsForBase(row, items, base, now = new Date()) {
     return notSentForThisBase && dueAt <= now;
   });
 
+  // If there are configured items but none are due, nothing to send
   if (!dueItems.length && items && items.length) {
     return { sentCount: 0, perItem: [] };
   }
 
-  // Legacy fallback: synthesize single step from parent
+  // Synthesized fallback when there are NO child items:
+  // carry the parent's content/media once (important for dedupe below)
   const synthesized =
     !items || items.length === 0
       ? [
           {
-            id: null,
+            id: null, // null id marks synthesized
             order_index: 0,
             offset_seconds: 0,
             template_id: row.template_id || null,
@@ -583,7 +590,9 @@ async function deliverItemsForBase(row, items, base, now = new Date()) {
       : [];
 
   const working = dueItems.length ? dueItems : synthesized;
+  const synthesizedFallback = !items || items.length === 0;
 
+  // Resolve recipients once
   const recipients = await resolveRecipients(row);
   if (!recipients.length) {
     console.warn(
@@ -600,15 +609,34 @@ async function deliverItemsForBase(row, items, base, now = new Date()) {
   }
 
   const results = [];
+
   for (const it of working) {
-    // Resolve text(s)
+    // ---------- Build message texts ----------
     const tplId = it.template_id || row.template_id || null;
 
     let baseText = it.body || row.body || "";
     if (tplId) {
-      const tpl = await MessageTemplate.findByPk(tplId);
-      const candidate = pickTemplateBody(tpl);
-      if (candidate) baseText = candidate;
+      try {
+        // Limit attributes so Sequelize doesn't try to read non-existent columns
+        const tpl = await MessageTemplate.findByPk(tplId, {
+          attributes: [
+            "id",
+            "body",
+            "content",
+            "message",
+            "text",
+            "text_body",
+            "message_en",
+            "message_ar",
+          ],
+        });
+        const cand = pickTemplateBody(tpl);
+        if (cand) baseText = cand;
+      } catch (e) {
+        console.warn(
+          `[schedule:${row.id}] template ${tplId} load failed: ${e.message}`
+        );
+      }
     }
 
     let messages =
@@ -622,7 +650,7 @@ async function deliverItemsForBase(row, items, base, now = new Date()) {
       messages = [baseText];
     }
 
-    // Variables: parent then item (item overrides)
+    // Apply variables (row then item overrides)
     const mergedVars = Object.assign(
       {},
       row.variables_json || {},
@@ -632,21 +660,44 @@ async function deliverItemsForBase(row, items, base, now = new Date()) {
       .map((m) => applyVars(m, mergedVars))
       .filter((m) => typeof m === "string" && m.trim() !== "");
 
-    // Media: merge item + parent
+    // ---------- Build media set (FIX: avoid double-including row media on synthesized item) ----------
+    const shouldIncludeRowMedia = !(synthesizedFallback && it.id == null);
+    const rowMediaUrl = shouldIncludeRowMedia ? row.media_url ?? null : null;
+    const rowMediaJson = shouldIncludeRowMedia
+      ? Array.isArray(row.media_json)
+        ? row.media_json
+        : null
+      : null;
+
     const { files, urls } = await mergeMediaSources(
       it.media_url ?? null,
       Array.isArray(it.media_json) ? it.media_json : null,
-      row.media_url ?? null,
-      Array.isArray(row.media_json) ? row.media_json : null
+      rowMediaUrl,
+      rowMediaJson
     );
 
-    // ALWAYS bulk
+    // De-dupe urls and files
+    const uniqueUrls = Array.from(new Set((urls || []).map(String)));
+
+    const seenFiles = new Set();
+    const uniqueFiles = [];
+    for (const f of files || []) {
+      const key = `${f.originalname || "file"}::${
+        (f.buffer && f.buffer.length) || 0
+      }`;
+      if (!seenFiles.has(key)) {
+        seenFiles.add(key);
+        uniqueFiles.push(f);
+      }
+    }
+
+    // ---------- Send ----------
     const sendResult = await messageService.sendManySameMessage(
       row.business_id,
       recipients,
       finalMessages,
-      files,
-      urls
+      uniqueFiles,
+      uniqueUrls
     );
 
     const failedCount = Array.isArray(sendResult?.failedMessages)

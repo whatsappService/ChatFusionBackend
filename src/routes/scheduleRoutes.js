@@ -123,5 +123,11 @@ router.post(
     }
   }
 );
+router.delete(
+  "/:id",
+  ...base,
+  requirePermission("schedules.delete"),
+  scheduleController.deleteSchedule
+);
 
 module.exports = router;

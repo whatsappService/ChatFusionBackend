@@ -19,11 +19,7 @@ const Report = require("./report");
 const Feature = require("./feature");
 const BusinessFeature = require("./businessFeature");
 const UserFeature = require("./userFeature");
-const UserPermission = require("./userPermission"); // ✅ needed by services
-
-// Scheduling
-const ScheduledMessage = require("./ScheduledMessage");
-const ScheduledMessageItem = require("./ScheduledMessageItem");
+const UserPermission = require("./userPermission");
 
 // Packages
 const BusinessPackage = require("./businessPackage");
@@ -32,7 +28,16 @@ const BusinessPackagePermission = require("./businessPackagePermission");
 const BusinessUserPackage = require("./businessUserPackage");
 
 // ✅ Usage / Quotas
-const UsageCounter = require("./usageCounter"); // ✅ now a model, not a function
+const UsageCounter = require("./usageCounter");
+
+// ---------------- Scheduling (initialize with the shared instance) ----------------
+const sequelize = require("../config/database");
+
+const ScheduledMessageDef = require("./ScheduledMessage");
+const ScheduledMessageItemDef = require("./ScheduledMessageItem");
+
+const ScheduledMessage = ScheduledMessageDef.initModel(sequelize);
+const ScheduledMessageItem = ScheduledMessageItemDef.initModel(sequelize);
 
 /* =========================
  * Core relationships
@@ -154,7 +159,6 @@ Feature.belongsToMany(User, {
  * Packages
  * =======================*/
 
-// Business ↔ Packages
 BusinessPackage.belongsTo(Business, {
   foreignKey: "business_id",
   as: "business",
@@ -168,7 +172,6 @@ Business.hasMany(BusinessPackage, {
   onUpdate: "CASCADE",
 });
 
-// Package ↔ Feature rules
 BusinessPackageFeature.belongsTo(BusinessPackage, {
   foreignKey: "package_id",
   as: "pkg",
@@ -200,7 +203,6 @@ Feature.belongsToMany(BusinessPackage, {
   as: "packages",
 });
 
-// Package ↔ Permissions
 BusinessPackagePermission.belongsTo(BusinessPackage, {
   foreignKey: "package_id",
   as: "pkg",
@@ -228,23 +230,18 @@ BusinessUserPackage.belongsTo(BusinessPackage, {
   onUpdate: "CASCADE",
 });
 
-// For fetching junction rows from a package (services expect alias 'assignedUsers')
 BusinessPackage.hasMany(BusinessUserPackage, {
   foreignKey: "package_id",
   as: "assignedUsers",
   onDelete: "CASCADE",
   onUpdate: "CASCADE",
 });
-
-// For fetching real users of a package
 BusinessPackage.belongsToMany(User, {
   through: BusinessUserPackage,
   foreignKey: "package_id",
   otherKey: "user_id",
   as: "members",
 });
-
-// A user's packages
 User.hasMany(BusinessUserPackage, {
   foreignKey: "user_id",
   as: "packageAssignments",
@@ -259,31 +256,18 @@ User.belongsToMany(BusinessPackage, {
 });
 
 /* =========================
- * Scheduling
+ * Scheduling: wire via associate()
  * =======================*/
-ScheduledMessage.belongsTo(Business, {
-  foreignKey: "business_id",
-  as: "business",
-  onDelete: "CASCADE",
-  onUpdate: "CASCADE",
+ScheduledMessage.associate({
+  Business,
+  User,
+  ScheduledMessageItem,
+  MessageTemplate,
 });
-ScheduledMessage.belongsTo(User, {
-  foreignKey: "created_by_user",
-  as: "creator",
-  onDelete: "SET NULL",
-  onUpdate: "CASCADE",
-});
-Business.hasMany(ScheduledMessage, {
-  foreignKey: "business_id",
-  as: "scheduledMessages",
-  onDelete: "CASCADE",
-  onUpdate: "CASCADE",
-});
-User.hasMany(ScheduledMessage, {
-  foreignKey: "created_by_user",
-  as: "createdSchedules",
-  onDelete: "SET NULL",
-  onUpdate: "CASCADE",
+
+ScheduledMessageItem.associate({
+  ScheduledMessage,
+  MessageTemplate,
 });
 
 /* =========================
@@ -366,40 +350,7 @@ User.hasMany(Report, {
 });
 
 /* =========================
- * Usage / Quotas
- * =======================*/
-// Each usage counter row is scoped by business + (optional) user + feature + period_key
-UsageCounter.belongsTo(Business, {
-  foreignKey: "business_id",
-  as: "business",
-  onDelete: "CASCADE",
-  onUpdate: "CASCADE",
-});
-Business.hasMany(UsageCounter, {
-  foreignKey: "business_id",
-  as: "usageCounters",
-  onDelete: "CASCADE",
-  onUpdate: "CASCADE",
-});
-
-// user_id is nullable so business-level counters (aggregates) can use user_id = NULL
-UsageCounter.belongsTo(User, {
-  foreignKey: "user_id",
-  as: "user",
-  onDelete: "SET NULL", // keep business counters even if a user is deleted
-  onUpdate: "CASCADE",
-});
-User.hasMany(UsageCounter, {
-  foreignKey: "user_id",
-  as: "usageCounters",
-  onDelete: "SET NULL",
-  onUpdate: "CASCADE",
-});
-
-ScheduledMessage.associate({ ScheduledMessageItem });
-ScheduledMessageItem.associate({ ScheduledMessage });
-/* =========================
- * Initialize scopes after wiring
+ * Optional: initialize scopes after wiring
  * =======================*/
 if (typeof Business.initScopes === "function") Business.initScopes();
 if (typeof User.initScopes === "function") User.initScopes();
@@ -423,17 +374,18 @@ module.exports = {
   Feature,
   BusinessFeature,
   UserFeature,
-  UserPermission, // ✅ added export
+  UserPermission,
 
-  // Scheduling
+  // Scheduling (initialized)
   ScheduledMessage,
   ScheduledMessageItem,
+
   // Packages
   BusinessPackage,
   BusinessPackageFeature,
   BusinessPackagePermission,
   BusinessUserPackage,
 
-  // ✅ Usage / Quotas
+  // Usage / Quotas
   UsageCounter,
 };

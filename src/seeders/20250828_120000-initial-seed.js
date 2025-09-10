@@ -1230,6 +1230,7 @@ module.exports = {
       ];
 
       // parent rows
+      // ---------- 16) sample scheduled messages (parent) ----------
       const samples = [
         {
           id: "c0ffee00-0000-4000-8000-000000000001",
@@ -1252,6 +1253,8 @@ module.exports = {
           status: "ACTIVE",
           last_run_at: null,
           next_run_at: in20m,
+          has_run: 0, // <— NEW
+          run_count: 0, // <— NEW
           max_attempts: 3,
         },
         {
@@ -1278,6 +1281,8 @@ module.exports = {
           status: "ACTIVE",
           last_run_at: null,
           next_run_at: in5m,
+          has_run: 0, // <— NEW
+          run_count: 0, // <— NEW
           max_attempts: 3,
         },
         {
@@ -1301,6 +1306,8 @@ module.exports = {
           status: "ACTIVE",
           last_run_at: null,
           next_run_at: null,
+          has_run: 0, // <— NEW
+          run_count: 0, // <— NEW
           max_attempts: 3,
         },
       ];
@@ -1308,16 +1315,32 @@ module.exports = {
       for (const s of samples) {
         await sequelize.query(
           `INSERT INTO \`ScheduledMessages\`
-           (id, business_id, created_by_user, audience_type, to_number, to_numbers_json, customer_ids_json, category_id, category_ids_json, body, media_url, media_json, variables_json, type, send_at_utc, cron_expr, timezone, status, last_run_at, next_run_at, max_attempts, createdAt, updatedAt)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+           (id, business_id, created_by_user, audience_type, to_number, to_numbers_json, customer_ids_json, category_id, category_ids_json, body, media_url, media_json, variables_json, type, send_at_utc, cron_expr, timezone, status, last_run_at, next_run_at, has_run, run_count, max_attempts, createdAt, updatedAt)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
            ON DUPLICATE KEY UPDATE
-             business_id=VALUES(business_id), created_by_user=VALUES(created_by_user),
-             audience_type=VALUES(audience_type), to_number=VALUES(to_number), to_numbers_json=VALUES(to_numbers_json),
-             customer_ids_json=VALUES(customer_ids_json), category_id=VALUES(category_id), category_ids_json=VALUES(category_ids_json),
-             body=VALUES(body), media_url=VALUES(media_url), media_json=VALUES(media_json), variables_json=VALUES(variables_json),
-             type=VALUES(type), send_at_utc=VALUES(send_at_utc), cron_expr=VALUES(cron_expr),
-             timezone=VALUES(timezone), status=VALUES(status), last_run_at=VALUES(last_run_at), next_run_at=VALUES(next_run_at),
-             max_attempts=VALUES(max_attempts), updatedAt=VALUES(updatedAt)`,
+             business_id=VALUES(business_id),
+             created_by_user=VALUES(created_by_user),
+             audience_type=VALUES(audience_type),
+             to_number=VALUES(to_number),
+             to_numbers_json=VALUES(to_numbers_json),
+             customer_ids_json=VALUES(customer_ids_json),
+             category_id=VALUES(category_id),
+             category_ids_json=VALUES(category_ids_json),
+             body=VALUES(body),
+             media_url=VALUES(media_url),
+             media_json=VALUES(media_json),
+             variables_json=VALUES(variables_json),
+             type=VALUES(type),
+             send_at_utc=VALUES(send_at_utc),
+             cron_expr=VALUES(cron_expr),
+             timezone=VALUES(timezone),
+             status=VALUES(status),
+             last_run_at=VALUES(last_run_at),
+             next_run_at=VALUES(next_run_at),
+             has_run=VALUES(has_run),         -- <— NEW
+             run_count=VALUES(run_count),     -- <— NEW
+             max_attempts=VALUES(max_attempts),
+             updatedAt=VALUES(updatedAt)`,
           {
             replacements: [
               s.id,
@@ -1340,6 +1363,8 @@ module.exports = {
               s.status,
               s.last_run_at,
               s.next_run_at,
+              s.has_run, // <— NEW
+              s.run_count, // <— NEW
               s.max_attempts,
             ],
             transaction: t,

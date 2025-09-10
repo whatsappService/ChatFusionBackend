@@ -137,11 +137,50 @@ function applyVars(text, vars) {
     return dict[key] != null ? String(dict[key]) : `{${rawKey}}`;
   });
 }
+
+/** Prefer body-like fields; add en/ar fallbacks for your seed schema */
 function pickTemplateBody(tpl) {
   if (!tpl) return null;
   return (
-    tpl.body || tpl.content || tpl.message || tpl.text || tpl.text_body || null
+    tpl.body ||
+    tpl.content ||
+    tpl.message ||
+    tpl.text ||
+    tpl.text_body ||
+    tpl.message_en ||
+    tpl.message_ar ||
+    null
   );
+}
+
+/* ---------------- templates: safe column selection ---------------- */
+let _templateColsCache = null;
+async function getTemplateCols() {
+  if (_templateColsCache) return _templateColsCache;
+  try {
+    const [rows] = await ScheduledMessage.sequelize.query(
+      "SHOW COLUMNS FROM `MessageTemplates`"
+    );
+    _templateColsCache = new Set(rows.map((r) => r.Field));
+  } catch {
+    // Minimal fallback
+    _templateColsCache = new Set(["id", "message_en", "message_ar"]);
+  }
+  return _templateColsCache;
+}
+function templateAttrsFrom(cols) {
+  const preferred = [
+    "body",
+    "content",
+    "message",
+    "text",
+    "text_body",
+    "message_en",
+    "message_ar",
+  ];
+  const attrs = ["id"];
+  for (const c of preferred) if (cols.has(c)) attrs.push(c);
+  return attrs;
 }
 
 /* ---------------- helpers: schedule logic ---------------- */
@@ -548,12 +587,8 @@ function collectBodiesFromRowAndItems(row, items = []) {
   return out;
 }
 
-/* ---------------- core sender ---------------- */ async function deliverItemsForBase(
-  row,
-  items,
-  base,
-  now = new Date()
-) {
+/* ---------------- core sender ---------------- */
+async function deliverItemsForBase(row, items, base, now = new Date()) {
   // Figure out which items are due on this base tick
   const dueItems = (items || []).filter((it) => {
     if (it.enabled === false) return false;
@@ -570,12 +605,11 @@ function collectBodiesFromRowAndItems(row, items = []) {
   }
 
   // Synthesized fallback when there are NO child items:
-  // carry the parent's content/media once (important for dedupe below)
   const synthesized =
     !items || items.length === 0
       ? [
           {
-            id: null, // null id marks synthesized
+            id: null,
             order_index: 0,
             offset_seconds: 0,
             template_id: row.template_id || null,
@@ -617,19 +651,15 @@ function collectBodiesFromRowAndItems(row, items = []) {
     let baseText = it.body || row.body || "";
     if (tplId) {
       try {
-        // Limit attributes so Sequelize doesn't try to read non-existent columns
-        const tpl = await MessageTemplate.findByPk(tplId, {
-          attributes: [
-            "id",
-            "body",
-            "content",
-            "message",
-            "text",
-            "text_body",
-            "message_en",
-            "message_ar",
-          ],
+        const tplCols = await getTemplateCols();
+        const attrs = templateAttrsFrom(tplCols);
+
+        // Unscope to avoid default scopes that may add user_id
+        const tpl = await MessageTemplate.unscoped().findByPk(tplId, {
+          attributes: attrs,
+          raw: true,
         });
+
         const cand = pickTemplateBody(tpl);
         if (cand) baseText = cand;
       } catch (e) {
@@ -900,6 +930,8 @@ exports.createSchedule = async (
     status,
     last_run_at: null,
     next_run_at: null,
+    has_run: false,
+    run_count: 0,
   };
 
   const row = await ScheduledMessage.create(payload);
@@ -950,7 +982,6 @@ exports.listSchedules = async (businessId, query = {}) => {
   const tz =
     query.timezone && isValidIana(query.timezone) ? query.timezone : null;
 
-  // Whether to include items array verbatim
   const includeItems =
     String(query.include || "").toLowerCase() === "items" ||
     query.includeItems === "1" ||
@@ -1029,23 +1060,18 @@ exports.listSchedules = async (businessId, query = {}) => {
     }
   }
 
-  // Bulk-load templates once
+  // Bulk-load templates once (only columns that exist)
   const tplMap = new Map();
   if (neededTplIds.size) {
-    const tpls = await MessageTemplate.findAll({
+    const tplCols = await getTemplateCols();
+    const attrs = templateAttrsFrom(tplCols);
+
+    const tpls = await MessageTemplate.unscoped().findAll({
       where: { id: { [Op.in]: Array.from(neededTplIds) } },
-      attributes: [
-        "id",
-        "body",
-        "content",
-        "message",
-        "text",
-        "text_body",
-        "message_en",
-        "message_ar",
-      ],
+      attributes: attrs,
+      raw: true,
     });
-    for (const t of tpls) tplMap.set(t.id, t.toJSON ? t.toJSON() : t);
+    for (const t of tpls) tplMap.set(t.id, t);
   }
 
   // Helpers to pull text from items/parent
@@ -1131,7 +1157,7 @@ exports.getSchedule = async (businessId, id, tz) => {
   // normalized items array (child items or legacy fallback)
   const items =
     typeof row.getAllMessageItems === "function"
-      ? row.getAllMessageItems({ includeLegacy: true })
+      ? await row.getAllMessageItems({ includeLegacy: true })
       : base.items || [];
 
   // bodies & attachments across items + parent
@@ -1472,7 +1498,12 @@ exports.runNow = async (businessId, id) => {
 
   const sendBundle = await deliverItemsForBase(row, items, base || now, now);
 
-  const patch = { last_run_at: now };
+  const patch = {
+    last_run_at: now,
+    run_count: (Number(row.run_count) || 0) + 1,
+    has_run: true,
+  };
+
   patch.next_run_at = await computePostRunNextRun(row, items, now);
   await row.update(patch);
 

@@ -459,10 +459,10 @@ module.exports = {
         ["customers", "Customers", "Manage customer directory & segments"],
         ["templates", "Templates", "Manage message templates"],
         ["reports", "Reports", "Delivery stats and charts"],
-        ["api_access", "API Access", "Use REST endpoints & tokens"],
+        ["whatsapp", "API Access", "Use REST endpoints & tokens"],
         ["webhooks", "Webhooks", "Receive delivery/receipt events"],
         [
-          "integrations.whatsapp",
+          "whatsapp",
           "WhatsApp Integration",
           "WhatsApp integration & auth",
         ],
@@ -541,7 +541,7 @@ module.exports = {
           "customers.template.download",
           "customers.sync",
           "customers.import",
-          "categories.read",
+
         ],
         templates: [
           "templates.read",
@@ -555,20 +555,15 @@ module.exports = {
           "users.update",
           "users.delete",
           "users.invite",
-          "multiuser.manage",
-          "team.manage",
         ],
         reports: [
           "reports.view",
           "reports.export",
-          "analytics.view",
-          "analytics.export",
         ],
-        api_access: ["api.manage", "integrations.manage", "whatsapp.manage"],
-        webhooks: ["webhooks.manage"],
+        whatsapp: ["whatsapp.auth", "whatsapp.manage"],
+
         features: ["features.read", "features.write"],
         chatbot: ["chatbot.manage"],
-        "integrations.whatsapp": ["integrations.whatsapp.auth"],
         packages: ["packages.manage"],
         settings: [],
       };
@@ -1494,16 +1489,16 @@ module.exports = {
           [/^reports\./, "reports"],
           [/^analytics\./, "reports"],
           [/^webhooks\./, "webhooks"],
-          [/^api\./, "api_access"],
-          [/^integrations\.manage$/, "api_access"],
-          [/^whatsapp\.manage$/, "api_access"],
+          [/^api\./, "whatsapp"],
+          [/^whatsapp\.manage$/, "whatsapp"],
+          [/^whatsapp\.manage$/, "whatsapp"],
           [/^features\./, "features"],
           [/^chatbot\./, "chatbot"],
-          [/^integrations\.whatsapp\.auth$/, "integrations.whatsapp"],
+          [/^whatsapp\.auth$/, "whatsapp"],
           [/^packages\.manage$/, "packages"],
         ];
         for (const [re, f] of map) if (re.test(perm)) return f;
-        return "api_access";
+        return "whatsapp";
       };
 
       const [permRows] = await sequelize.query(
@@ -1534,7 +1529,7 @@ module.exports = {
       await sequelize.query(
         `UPDATE \`PermissionCatalog\` SET feature_id = ?
          WHERE feature_id IS NULL`,
-        { replacements: [fid("api_access")], transaction: t }
+        { replacements: [fid("whatsapp")], transaction: t }
       );
 
       await t.commit();
@@ -1714,20 +1709,18 @@ module.exports = {
         "users.update",
         "users.delete",
         "users.invite",
-        "multiuser.manage",
+
         "team.manage",
         "reports.view",
         "reports.export",
         "analytics.view",
         "analytics.export",
         "webhooks.manage",
-        "api.manage",
-        "integrations.manage",
         "whatsapp.manage",
         "features.read",
         "features.write",
         "chatbot.manage",
-        "integrations.whatsapp.auth",
+        "whatsapp.auth",
         "packages.manage",
       ];
       await sequelize
@@ -1745,13 +1738,13 @@ module.exports = {
         "bulk_send",
         "media_attachments",
         "reports",
-        "api_access",
+        "whatsapp",
         "webhooks",
         "users",
         "customers",
         "templates",
         "features",
-        "integrations.whatsapp",
+        "whatsapp",
         "chatbot",
         "packages",
         "settings",

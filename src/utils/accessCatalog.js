@@ -22,7 +22,7 @@ const PERMISSIONS_BY_FEATURE = {
 
   // Users & multi-user management
   users: ["users.read", "users.write", "users.manage", "users.invite"],
-  multi_user: ["users.read", "users.write", "multiuser.manage"],
+  multi_user: ["users.read", "users.write"],
 
   // Customers
   customers: ["customers.read", "customers.write"],
@@ -31,8 +31,6 @@ const PERMISSIONS_BY_FEATURE = {
   analytics: ["reports.view"],
 
   // Integrations & platform
-  webhooks: ["webhooks.manage"],
-  api_access: ["api.manage"],
   ai_chatbot: ["chatbot.manage"],
 
   // Feature management itself
@@ -65,7 +63,7 @@ const CANONICAL_PERMS = [
   "users.write",
   "users.manage",
   "users.invite",
-  "multiuser.manage",
+
 
   // Customers
   "customers.read",
@@ -76,7 +74,6 @@ const CANONICAL_PERMS = [
 
   // Integrations & platform
   "webhooks.manage",
-  "api.manage",
   "chatbot.manage",
 
   // Feature administration

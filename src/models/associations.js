@@ -33,7 +33,7 @@ const UsageCounter = require("./usageCounter");
 // ---------------- Scheduling (initialize with the shared instance) ----------------
 const sequelize = require("../config/database");
 
-const ScheduledMessageDef = require("./ScheduledMessage");
+const ScheduledMessageDef = require("./scheduledMessage");
 const ScheduledMessageItemDef = require("./ScheduledMessageItem");
 
 const ScheduledMessage = ScheduledMessageDef.initModel(sequelize);

@@ -15,4 +15,4 @@ services:
 
 networks:
   whatsapp_network:
-    driver: bridge
+    external: true   # <<< use the existing network instead of creating a new one

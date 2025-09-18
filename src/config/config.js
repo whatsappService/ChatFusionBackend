@@ -7,7 +7,7 @@ const base = {
   password: process.env.MYSQL_PASSWORD,
   database: process.env.MYSQL_DB,
   host: process.env.MYSQL_HOST,
-  port: Number(process.env.MYSQL_PORT || 3306),
+  port: Number(process.env.MYSQL_PORT || 3307),
   dialect: process.env.DB_DIALECT || "mysql",
   // Persist metadata in DB tables instead of files
   migrationStorage: "sequelize",

@@ -7,8 +7,8 @@ const fs = require("fs").promises;
 const { v4: uuidv4 } = require("uuid");
 
 // IMPORTANT: match your actual filename/casing
-const ScheduledMessage = require("../models/ScheduledMessage");
-const ScheduledMessageItem = require("../models/ScheduledMessageItem");
+const ScheduledMessage = require("../models/scheduledMessage");
+const ScheduledMessageItem = require("../models/scheduledMessageItem");
 const Customer = require("../models/customer");
 const MessageTemplate = require("../models/messageTemplate");
 

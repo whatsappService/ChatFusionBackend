@@ -18,10 +18,22 @@ exports.getUserMessages = async (req, res) => {
 exports.getHistoryBetweenDates = async (req, res) => {
   try {
     const userId = req.user.id;
-    // Expect query parameters: startDate, endDate
+    
+    // Validate pagination parameters
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 10)); // Max 100 items per page
+    
+    // Prepare query parameters with validated pagination
+    const queryParams = {
+      ...req.query,
+      page,
+      limit
+    };
+    
+    // Expect query parameters: startDate, endDate, page, limit
     const data = await historyService.fetchHistoryBetweenDates(
       userId,
-      req.query
+      queryParams
     );
     res.json(data);
   } catch (error) {

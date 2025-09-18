@@ -11,6 +11,7 @@ Feature.init(
     code: { type: DataTypes.STRING(64), allowNull: false, unique: true },
     name: { type: DataTypes.STRING(128), allowNull: false },
     description: { type: DataTypes.TEXT, allowNull: true },
+    is_active: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
   },
   {
     sequelize,

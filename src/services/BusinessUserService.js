@@ -735,7 +735,7 @@ exports.updateUserAccess = async function updateUserAccess(
       );
       if (want.length) {
         const rows = await Feature.findAll({
-          where: { code: { [Op.in]: want } },
+          where: { code: { [Op.in]: want }, is_active: true },
           attributes: ["id", "code"],
           transaction: t,
           raw: true,

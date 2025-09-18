@@ -41,6 +41,7 @@ const needModel = (name, m) => {
 const _featureCodeToIdMap = async (t) => {
   if (!Feature) return {};
   const rows = await Feature.findAll({
+    where: { is_active: true },
     attributes: ["id", "code"],
     transaction: t,
   });
@@ -678,11 +679,20 @@ exports.getEffectiveAccessForUser = async (businessId, userId) => {
   if (BusinessFeature && Feature) {
     const bfRows = await BusinessFeature.findAll({
       where: { business_id: bId, enabled: true },
-      include: [{ model: Feature, as: "feature", attributes: ["code"] }],
+      include: [{ 
+        model: Feature, 
+        as: "feature", 
+        attributes: ["code"],
+        where: { is_active: true }
+      }],
     });
     bizAllowed = new Set(bfRows.map((r) => r?.feature?.code).filter(Boolean));
   } else if (Feature) {
-    const rows = await Feature.findAll({ attributes: ["code"], raw: true });
+    const rows = await Feature.findAll({ 
+      where: { is_active: true },
+      attributes: ["code"], 
+      raw: true 
+    });
     bizAllowed = new Set(rows.map((r) => r.code).filter(Boolean));
   }
 
@@ -729,7 +739,12 @@ exports.getEffectiveAccessForUser = async (businessId, userId) => {
     const ruleRows = await BusinessPackageFeature.findAll({
       where: { package_id: { [Op.in]: activePkgIds } },
       include: [
-        { model: Feature, as: "feature", attributes: ["code", "name"] },
+        { 
+          model: Feature, 
+          as: "feature", 
+          attributes: ["code", "name"],
+          where: { is_active: true }
+        },
       ],
       attributes: ["enabled", "meta_json"],
     });
@@ -751,7 +766,12 @@ exports.getEffectiveAccessForUser = async (businessId, userId) => {
     const ufRows = await UserFeature.findAll({
       where: { user_id: uId },
       include: [
-        { model: Feature, as: "feature", attributes: ["code", "name"] },
+        { 
+          model: Feature, 
+          as: "feature", 
+          attributes: ["code", "name"],
+          where: { is_active: true }
+        },
       ],
       attributes: ["enabled", "meta_json"],
     });

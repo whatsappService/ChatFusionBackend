@@ -29,12 +29,18 @@ const PERMISSIONS_BY_FEATURE = {
 
   // Analytics / reports
   analytics: ["reports.view"],
+  reports: ["reports.view"],
 
   // Integrations & platform
   ai_chatbot: ["chatbot.manage"],
+  chatbot: ["chatbot.manage"],
+  webhooks: ["webhooks.manage"],
+  whatsapp: ["whatsapp.auth", "whatsapp.manage"],
 
   // Feature management itself
   features: ["features.read", "features.write"],
+  packages: ["packages.manage"],
+  settings: [],
 };
 
 /**
@@ -75,10 +81,13 @@ const CANONICAL_PERMS = [
   // Integrations & platform
   "webhooks.manage",
   "chatbot.manage",
+  "whatsapp.auth",
+  "whatsapp.manage",
 
   // Feature administration
   "features.read",
   "features.write",
+  "packages.manage",
 ];
 
 /**

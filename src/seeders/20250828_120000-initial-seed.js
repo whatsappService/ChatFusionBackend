@@ -474,14 +474,14 @@ module.exports = {
       ];
       for (const [code, name, description] of features) {
         await sequelize.query(
-          `INSERT INTO \`Features\` (code, name, description, createdAt, updatedAt)
-           VALUES (?, ?, ?, NOW(), NOW())
-           ON DUPLICATE KEY UPDATE name=VALUES(name), description=VALUES(description), updatedAt=VALUES(updatedAt)`,
+          `INSERT INTO \`Features\` (code, name, description, is_active, createdAt, updatedAt)
+           VALUES (?, ?, ?, 1, NOW(), NOW())
+           ON DUPLICATE KEY UPDATE name=VALUES(name), description=VALUES(description), is_active=VALUES(is_active), updatedAt=VALUES(updatedAt)`,
           { replacements: [code, name, description], transaction: t }
         );
       }
       const [featRows] = await sequelize.query(
-        "SELECT id, code FROM `Features`",
+        "SELECT id, code FROM `Features` WHERE is_active = 1",
         { transaction: t }
       );
       const featureMap = Object.fromEntries(
@@ -541,6 +541,7 @@ module.exports = {
           "customers.template.download",
           "customers.sync",
           "customers.import",
+          "categories.read",
 
         ],
         templates: [

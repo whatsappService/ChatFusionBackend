@@ -21,6 +21,25 @@ exports.getWhatsappAccountInfo = async (req, res) => {
   }
 };
 
+// ✅ Get API Key by Business ID
+exports.getApiKeyByBusinessId = async (req, res) => {
+  try {
+    const businessId = req.params.businessId;
+    const apiKey = await whatsappService.getApiKeyByBusinessId(businessId);
+
+    if (!apiKey) {
+      return res
+        .status(404)
+        .json({ message: "API key not found for this business" });
+    }
+
+    res.json({ apiKey });
+  } catch (error) {
+    console.error("Error fetching API key by business ID:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+
 // ✅ Reset API Key (Generates a new one, requires password verification)
 exports.resetBusinessApiKey = async (req, res) => {
   try {

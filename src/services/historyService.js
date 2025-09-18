@@ -33,7 +33,7 @@ exports.fetchUserMessages = async (userId, queryParams) => {
   return response.data;
 };
 
-/** Fetch history between two dates for a given user’s business. */
+/** Fetch history between two dates for a given user's business with pagination. */
 exports.fetchHistoryBetweenDates = async (userId, queryParams) => {
   console.log("fetchHistoryBetweenDates");
 
@@ -46,15 +46,45 @@ exports.fetchHistoryBetweenDates = async (userId, queryParams) => {
   if (!apiKey) throw new Error("API key not found for this business");
   console.log("API key:", apiKey);
 
+  // Extract pagination parameters
+  const { page = 1, limit = 10, ...otherParams } = queryParams;
+  
+  // Convert page and limit to offset for the external API
+  const offset = (parseInt(page) - 1) * parseInt(limit);
+  
+  // Prepare parameters for the external API
+  const apiParams = {
+    ...otherParams,
+    offset: offset,
+    limit: parseInt(limit)
+  };
+
   const url = `${API_BASE}/history/user-history`;
-  console.log("Fetching history between dates from:", url);
+  console.log("Fetching history between dates from:", url, "with params:", apiParams);
 
   const response = await axios.get(url, {
-    params: queryParams,
+    params: apiParams,
     headers: { "x-api-key": apiKey },
   });
+  
   logger.info("Fetched history between dates:", response.data);
-  return response.data;
+  
+  // Add pagination metadata to the response
+  const data = response.data;
+  const totalItems = data.total || data.count || 0;
+  const totalPages = Math.ceil(totalItems / parseInt(limit));
+  
+  return {
+    ...data,
+    pagination: {
+      page: parseInt(page),
+      limit: parseInt(limit),
+      totalItems,
+      totalPages,
+      hasNextPage: parseInt(page) < totalPages,
+      hasPrevPage: parseInt(page) > 1
+    }
+  };
 };
 
 /** Fetch messages by a specific history ID and generate an Excel file. */

@@ -11,6 +11,7 @@ module.exports = {
       code: { type: Sequelize.STRING(64), unique: true, allowNull: false },
       name: { type: Sequelize.STRING(128), allowNull: false },
       description: { type: Sequelize.TEXT, allowNull: true },
+      is_active: { type: Sequelize.BOOLEAN, allowNull: false, defaultValue: true },
       createdAt: {
         type: Sequelize.DATE,
         allowNull: false,

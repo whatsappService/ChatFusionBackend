@@ -104,4 +104,7 @@ router.post("/me/update-profile", auth, userController.updateProfile);
 router.post("/me/change-password", auth, userController.changePassword);
 router.post("/me/verify-password", auth, userController.verifyPassword);
 
+// Alias for frontend compatibility
+router.post("/verify-password", auth, userController.verifyPassword);
+
 module.exports = router;

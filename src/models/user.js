@@ -131,6 +131,7 @@ class User extends Model {
       ON bp.id = bup.package_id AND bp.business_id = :businessId
     LEFT JOIN BusinessPackageFeatures bpf
       ON bpf.package_id = bp.id AND bpf.feature_id = f.id
+    WHERE f.is_active = 1
     GROUP BY f.id, f.code, uf.enabled, uf.meta_json, bf.enabled, bf.meta_json
     ORDER BY f.code
     `,

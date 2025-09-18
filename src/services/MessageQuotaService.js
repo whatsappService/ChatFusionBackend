@@ -55,7 +55,7 @@ async function getBusinessCap(businessId, featureCode) {
         {
           model: Feature,
           as: "feature",
-          where: { code: featureCode },
+          where: { code: featureCode, is_active: true },
           attributes: [],
         },
       ],

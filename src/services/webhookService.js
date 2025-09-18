@@ -5,7 +5,7 @@ const { v4: uuidv4 } = require("uuid");
 const { Feature, BusinessFeature } = require("../models/associations");
 
 async function getOrInitBF(business_id) {
-  const feature = await Feature.findOne({ where: { code: "webhooks" } });
+  const feature = await Feature.findOne({ where: { code: "webhooks", is_active: true } });
   if (!feature) throw new Error("Feature 'webhooks' not found");
 
   let bf = await BusinessFeature.findOne({

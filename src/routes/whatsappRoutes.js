@@ -10,7 +10,7 @@ const requirePermission = require("../middleware/requirePermission");
 
 const mustManageWhatsapp = [
   authMiddleware,
-  requireFeature("integrations.whatsapp"),
+  requireFeature("whatsapp"),
   requirePermission("whatsapp.manage"),
 ];
 
@@ -18,6 +18,11 @@ router.get(
   "/account-info",
   ...mustManageWhatsapp,
   whatsappController.getWhatsappAccountInfo
+);
+router.get(
+  "/api-key/:businessId",
+  ...mustManageWhatsapp,
+  whatsappController.getApiKeyByBusinessId
 );
 router.post(
   "/reset-api-key",

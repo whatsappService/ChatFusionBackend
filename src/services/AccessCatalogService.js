@@ -37,12 +37,13 @@ async function getAccessCatalog(businessId, opts = {}) {
     });
     dbPerms = rows.map((r) => r.perm).filter((p) => p && p !== "*");
   }
-  const allPermissions = uniqSorted([...CANONICAL_PERMS, ...dbPerms]);
+  // We'll build allPermissions after we know which features are active
 
   /* -------------------- 1) Features allowed for this business -------------------- */
   let features = [];
   if (Feature) {
     const all = await Feature.findAll({
+      where: { is_active: true },
       attributes: ["code", "name", "description"],
       raw: true,
     });
@@ -51,7 +52,12 @@ async function getAccessCatalog(businessId, opts = {}) {
       const bf = await BusinessFeature.findAll({
         where: { business_id: bId, enabled: true },
         attributes: [],
-        include: [{ model: Feature, as: "feature", attributes: ["code"] }],
+        include: [{ 
+          model: Feature, 
+          as: "feature", 
+          attributes: ["code"],
+          where: { is_active: true }
+        }],
         raw: true,
       });
       const allowed = new Set(bf.map((r) => r["feature.code"]).filter(Boolean));
@@ -86,6 +92,26 @@ async function getAccessCatalog(businessId, opts = {}) {
 
     permissionsByFeature[code] = Array.from(base).sort();
   }
+
+  /* ----------- 2.5) Build allPermissions from active features only ----------- */
+  const activeFeaturePermissions = new Set();
+  for (const code of featureCodes) {
+    const perms = PERMISSIONS_BY_FEATURE[code] || [];
+    perms.forEach(p => activeFeaturePermissions.add(p));
+  }
+  
+  // Add DB permissions that match active feature prefixes
+  for (const p of dbPerms) {
+    for (const code of featureCodes) {
+      const pfxs = FEATURE_PERMISSION_PREFIX[code] || [code];
+      if (pfxs.some((pfx) => p === pfx || p.startsWith(pfx + "."))) {
+        activeFeaturePermissions.add(p);
+        break;
+      }
+    }
+  }
+  
+  const allPermissions = uniqSorted(Array.from(activeFeaturePermissions));
 
   /* -------------------------- 3) business packages list -------------------------- */
   let packages = [];

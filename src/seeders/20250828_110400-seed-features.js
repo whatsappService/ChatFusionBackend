@@ -10,7 +10,7 @@ module.exports = {
       ["webhooks","Webhooks","Receive delivery/receipt events"],
       ["multi_user","Multi-user","Multiple logins per business"],
       ["ai_chatbot","AI Chatbot","Bot replies and flows"]
-    ].map(([code,name,description]) => ({ code, name, description, createdAt:new Date(), updatedAt:new Date() }));
+    ].map(([code,name,description]) => ({ code, name, description, is_active: true, createdAt:new Date(), updatedAt:new Date() }));
     await q.bulkInsert("Features", rows);
   },
   async down(q){ await q.bulkDelete("Features", null, {}); }

@@ -44,6 +44,21 @@ exports.getApiKeyByUser = async (userId) => {
 };
 
 /**
+ * ✅ Get API Key for a business by business ID
+ */
+exports.getApiKeyByBusinessId = async (businessId) => {
+  try {
+    const business = await Business.findByPk(businessId, {
+      attributes: ["api_key"],
+    });
+    return business?.api_key || null;
+  } catch (error) {
+    console.error("❌ Error fetching API key by business ID:", error);
+    throw error;
+  }
+};
+
+/**
  * ✅ Fetch WhatsApp Account Info
  */
 exports.fetchWhatsappAccountInfo = async (apiKey) => {

@@ -6,7 +6,7 @@ const { Feature, BusinessFeature } = require("../models/associations");
 // Ensure we have an enabled BusinessFeature row for ai_chatbot,
 // and that meta_json has defaults.
 async function getOrInit(business_id) {
-  const feature = await Feature.findOne({ where: { code: "ai_chatbot" } });
+  const feature = await Feature.findOne({ where: { code: "ai_chatbot", is_active: true } });
   if (!feature) {
     const err = new Error("Feature 'ai_chatbot' not found. Seed Features table.");
     err.status = 500;

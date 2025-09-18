@@ -1,7 +1,7 @@
   const { Op } = require("sequelize");
   const BusinessCategory = require("../models/businessCategory");
   const MessageTemplate = require("../models/messageTemplate");
-  const MessagesPlaceholder = require("../models/MessagesPlaceholder"); // ⬅️ global placeholders
+  const MessagesPlaceholder = require("../models/messagesPlaceholder"); // ⬅️ global placeholders
 
   // Only real columns (no placeholders on MessageTemplates)
   const TEMPLATE_FIELDS = [

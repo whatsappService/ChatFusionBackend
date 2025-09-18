@@ -1,6 +1,6 @@
 "use strict";
 const { Op } = require("sequelize");
-const MessagesPlaceholder = require("../models/MessagesPlaceholder");
+const MessagesPlaceholder = require("../models/messagesPlaceholder");
 
 // fields we actually return, to avoid selecting unknown columns from scopes
 const FIELDS = [

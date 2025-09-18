@@ -10,7 +10,7 @@ const sequelize = new Sequelize(
   process.env.MYSQL_PASSWORD,
   {
     host: process.env.MYSQL_HOST,
-    port: Number(process.env.MYSQL_PORT || 3306),
+    port: Number(process.env.MYSQL_PORT || 3307),
     dialect: process.env.DB_DIALECT || "mysql",
     logging: false,               // keep runtime quiet; CLI has its own config
     timezone: "+00:00",

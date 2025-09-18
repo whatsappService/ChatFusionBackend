@@ -34,7 +34,7 @@ const UsageCounter = require("./usageCounter");
 const sequelize = require("../config/database");
 
 const ScheduledMessageDef = require("./scheduledMessage");
-const ScheduledMessageItemDef = require("./ScheduledMessageItem");
+const ScheduledMessageItemDef = require("./scheduledMessageItem");
 
 const ScheduledMessage = ScheduledMessageDef.initModel(sequelize);
 const ScheduledMessageItem = ScheduledMessageItemDef.initModel(sequelize);

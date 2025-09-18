@@ -10,7 +10,7 @@ services:
     environment:
       NODE_ENV: production
       MYSQL_HOST: mysql_db
-      MYSQL_PORT: 3306
+      MYSQL_PORT: 3307
     networks:
       - whatsapp_network
     command: sh -c "npm start"

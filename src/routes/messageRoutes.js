@@ -48,9 +48,20 @@ router.post(
   messageController.sendSingleMessage
 );
 
+// Alias for frontend compatibility (camelCase)
+router.post(
+  "/sendSingleMessage",
+  authenticateUser,
+  requireFeature("single_messages"),
+  requirePermission("messages.send.single"),
+  upload.any(),
+  requireMediaIfFiles,
+  messageController.sendSingleMessage
+);
+
 // Bulk send
 router.post(
-  "/send-bulk",
+  "/sendBulk",
   authenticateUser,
   requireFeature("bulk_send"),
   requirePermission("messages.send.bulk"),

@@ -303,6 +303,71 @@ exports.sendBulkMessage = async (
 };
 
 /**
+ * Send a single message to one recipient
+ * @param {number|string} businessId
+ * @param {string} recipient - phone number
+ * @param {string|string[]} contents - message content(s)
+ * @param {Array<{buffer:Buffer, originalname:string}>} files - optional files
+ * @param {Object} options - additional options like {user}
+ */
+exports.sendSingleMessage = async (
+  businessId,
+  recipient,
+  contents,
+  files = [],
+  options = {}
+) => {
+  const biz = await Business.findByPk(businessId);
+  if (!biz?.api_key) throw new Error("API key not found");
+  
+  const bizName = biz.name || biz.business_name || "";
+  const phone = String(recipient).replace(/\D/g, "");
+  
+  if (!/^\d+$/.test(phone)) {
+    return {
+      success: false,
+      message: "Invalid phone number format",
+      status: 400
+    };
+  }
+
+  // Look up customer for {name} placeholder
+  let customerName = "";
+  try {
+    let cust = await Customer.findOne({
+      where: { whatsapp_number: phone },
+    });
+    if (!cust) {
+      cust = await Customer.findOne({
+        where: { whatsapp_number: { [Op.like]: `%${phone}` } },
+      });
+    }
+    customerName = cust?.profile_name || "";
+  } catch (err) {
+    console.warn("Customer lookup failed:", err.message);
+  }
+
+  // Replace placeholders
+  const replacements = {
+    name: customerName,
+    business_name: bizName,
+  };
+
+  const messages = Array.isArray(contents) ? contents : [contents];
+  const finalMessages = messages.map(msg => placeholderReplacer(msg, replacements));
+
+  // Send the message
+  const result = await doSend(biz.api_key, phone, finalMessages, files);
+  
+  return {
+    ...result,
+    recipient: phone,
+    businessId,
+    messageCount: finalMessages.length
+  };
+};
+
+/**
  * Convenience: same message(s) for everyone (schedule use-case).
  * Tries true bulk first; **now falls back** automatically.
  */

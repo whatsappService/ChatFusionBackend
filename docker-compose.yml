@@ -5,10 +5,18 @@ services:
     restart: always
     ports:
       - "5550:5550"
-    env_file:
-      - .env.production
     environment:
       NODE_ENV: production
+      MYSQL_USER: root
+      MYSQL_PASSWORD: root
+      MYSQL_DB: whatsapp_portal
+      MYSQL_HOST: mysql_db
+      MYSQL_PORT: 3306
+      DB_DIALECT: mysql
+      DB_POOL_MAX: 10
+      DB_POOL_MIN: 0
+      DB_POOL_IDLE: 10000
+      DB_POOL_ACQUIRE: 30000
     networks:
       - whatsapp_network
     command: sh -c "npm start"

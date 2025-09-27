@@ -45,7 +45,6 @@ module.exports = {
         email_address: "superadmin@superadmin.com",
         phone_number: "1234567890",
         password: hashedPassword,
-        roles: JSON.stringify(["super-admin"]), // Store as JSON array
         is_active: true,
         is_deleted: false,
         business_id: 1, // Link to the existing business

@@ -38,7 +38,7 @@ async function doSend(apiKey, phone, messages, files = []) {
 
   try {
     const resp = await axios.post(
-      "https://chatfusion.murraltd.com/api/messaging/send",
+      "http://localhost:5500/api/messaging/send",
       form,
       { headers: { "x-api-key": apiKey, ...form.getHeaders() } }
     );
@@ -108,7 +108,7 @@ async function doSendBulk(apiKey, recipients, messages, files = []) {
 
   try {
     const resp = await axios.post(
-      "https://chatfusion.murraltd.com/api/messaging/send-bulk",
+      "http://localhost:5500/api/messaging/send-bulk",
       form,
       { headers: { "x-api-key": apiKey, ...form.getHeaders() } }
     );

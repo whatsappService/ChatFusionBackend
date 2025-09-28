@@ -9,7 +9,7 @@ const morgan = require("morgan");
 const helmet = require("helmet");
 const compression = require("compression");
 const rateLimit = require("express-rate-limit");
-
+const { ipKeyGenerator } = require("express-rate-limit"); // 👈 add this
 const winston = require("./src/utils/logger");
 const sequelize = require("./src/config/database");
 require("./src/models/associations"); // Ensure associations are loaded
@@ -131,7 +131,7 @@ if (String(process.env.RATE_LIMIT).toLowerCase() !== "off") {
       skip: (req) =>
         req.path === "/healthz" || req.path.startsWith("/uploads/"),
       // Works correctly when trust proxy is set
-      keyGenerator: (req) => req.ip || req.connection?.remoteAddress || "",
+      keyGenerator: ipKeyGenerator, 
       message: { error: "Too many requests, please try again later." },
     })
   );

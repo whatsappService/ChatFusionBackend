@@ -22,7 +22,12 @@ const app = express();
 app.disable("x-powered-by");
 
 // Respect proxies (e.g., if behind Nginx). Use a number or 'loopback'/'uniquelocal' etc.
-if (process.env.TRUST_PROXY) app.set("trust proxy", process.env.TRUST_PROXY);
+// Default to trusting proxy in development to avoid rate limiting issues
+if (process.env.TRUST_PROXY) {
+  app.set("trust proxy", process.env.TRUST_PROXY);
+} else if (process.env.NODE_ENV === "development") {
+  app.set("trust proxy", 1); // Trust first proxy in development
+}
 
 // Helmet site-wide. This sets CORP: same-origin by default.
 // We'll override CORP to `cross-origin` *only* for /uploads below.
@@ -103,6 +108,15 @@ if (process.env.RATE_LIMIT !== "off") {
       max: Number(process.env.RATE_MAX || 1000),
       standardHeaders: true,
       legacyHeaders: false,
+      // Skip rate limiting for health checks and static files
+      skip: (req) => {
+        return req.path === "/healthz" || req.path.startsWith("/uploads/");
+      },
+      // Use a more reliable key generator that doesn't rely on X-Forwarded-For
+      keyGenerator: (req) => {
+        // Use IP from connection if available, fallback to remote address
+        return req.ip || req.connection.remoteAddress || req.socket.remoteAddress;
+      },
     })
   );
 }

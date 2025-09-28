@@ -444,6 +444,7 @@ module.exports = {
 
       // ---------- 4) features ----------
       const features = [
+        // Messaging Features
         [
           "scheduled_messages",
           "Scheduled Messages",
@@ -456,21 +457,36 @@ module.exports = {
         ],
         ["bulk_send", "Bulk Send", "Send to many recipients with pacing"],
         ["media_attachments", "Media Attachments", "Send images, docs, voice"],
+        
+        // Customer Management
         ["customers", "Customers", "Manage customer directory & segments"],
+        ["categories", "Customer Categories", "Manage customer categories"],
+        
+        // Templates & Content
         ["templates", "Templates", "Manage message templates"],
+        ["placeholders", "Placeholders", "Manage message placeholders"],
+        
+        // Analytics & Reports
         ["reports", "Reports", "Delivery stats and charts"],
-        ["whatsapp", "API Access", "Use REST endpoints & tokens"],
+        ["analytics", "Analytics", "Advanced analytics and insights"],
+        
+        // Integrations
+        ["whatsapp", "WhatsApp Integration", "WhatsApp integration & auth"],
         ["webhooks", "Webhooks", "Receive delivery/receipt events"],
-        [
-          "whatsapp",
-          "WhatsApp Integration",
-          "WhatsApp integration & auth",
-        ],
+        ["api_access", "API Access", "Use REST endpoints & tokens"],
+        
+        // User Management
         ["users", "Users", "Manage users and permissions"],
+        ["multi_user", "Multi-User", "Multi-user management features"],
+        
+        // System Administration
         ["features", "Feature Flags", "Manage feature toggles and rollout"],
-        ["chatbot", "Chatbot", "Chatbot configuration & runtime"],
         ["packages", "Packages", "Packages & pricing management (UI gate)"],
         ["settings", "Settings", "Settings section (UI gate)"],
+        
+        // AI & Automation
+        ["chatbot", "Chatbot", "Chatbot configuration & runtime"],
+        ["ai_chatbot", "AI Chatbot", "AI-powered chatbot features"],
       ];
       for (const [code, name, description] of features) {
         await sequelize.query(
@@ -523,50 +539,87 @@ module.exports = {
       });
 
       // ---------- 7) permission catalog ----------
+      // Clean, non-duplicated permissions based on actual backend requirements
       const PERMISSIONS_BY_FEATURE = {
-        single_messages: ["messages.read", "messages.send.single"],
-        bulk_send: ["messages.read", "messages.send.bulk"],
+        // Messaging Features
+        single_messages: ["messages.send.single"],
+        bulk_send: ["messages.send.bulk"],
         scheduled_messages: [
           "schedules.read",
-          "schedules.create",
+          "schedules.create", 
           "schedules.update",
           "schedules.delete",
         ],
         media_attachments: ["media.upload"],
+        
+        // Customer Management
         customers: [
           "customers.read",
           "customers.create",
-          "customers.update",
+          "customers.update", 
           "customers.delete",
           "customers.template.download",
           "customers.sync",
           "customers.import",
-          "categories.read",
-
         ],
+        
+        // Categories (for customers)
+        categories: [
+          "categories.read",
+          "categories.create",
+          "categories.update",
+          "categories.delete",
+        ],
+        
+        // Templates & Content
         templates: [
           "templates.read",
           "templates.create",
           "templates.update",
           "templates.delete",
         ],
+        
+        // Placeholders (for message templates)
+        placeholders: [
+          "placeholders.read",
+          "placeholders.create",
+          "placeholders.update",
+          "placeholders.delete",
+        ],
+        
+        // Analytics & Reports
+        reports: [
+          "reports.view",
+          "reports.export",
+        ],
+        analytics: [
+          "analytics.view",
+          "reports.export", // analytics can also export reports
+        ],
+        
+        // Integrations
+        whatsapp: ["whatsapp.manage"],
+        webhooks: ["webhooks.manage"],
+        api_access: ["api.manage"],
+        
+        // User Management
         users: [
           "users.view",
           "users.create",
           "users.update",
           "users.delete",
-          "users.invite",
+          "users.manage", // includes users.read, users.write, users.invite
         ],
-        reports: [
-          "reports.view",
-          "reports.export",
-        ],
-        whatsapp: ["whatsapp.auth", "whatsapp.manage"],
-
+        multi_user: ["users.read", "users.write"], // subset for multi-user features
+        
+        // System Administration
         features: ["features.read", "features.write"],
-        chatbot: ["chatbot.manage"],
         packages: ["packages.manage"],
-        settings: [],
+        settings: [], // no specific permissions needed
+        
+        // AI & Automation
+        chatbot: ["chatbot.manage"],
+        ai_chatbot: ["chatbot.manage"], // same as chatbot
       };
 
       const ALL_PERMS = Array.from(

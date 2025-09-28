@@ -11,7 +11,7 @@ services:
       MYSQL_PASSWORD: root
       MYSQL_DB: whatsapp_portal
       MYSQL_HOST: mysql_db
-      MYSQL_PORT: 3306
+      MYSQL_PORT: 3307:3306
       DB_DIALECT: mysql
       DB_POOL_MAX: 10
       DB_POOL_MIN: 0

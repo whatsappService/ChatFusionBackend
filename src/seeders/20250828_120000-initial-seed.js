@@ -598,7 +598,7 @@ module.exports = {
         ],
         
         // Integrations
-        whatsapp: ["whatsapp.manage"],
+        whatsapp: ["whatsapp.auth", "whatsapp.manage"],
         webhooks: ["webhooks.manage"],
         api_access: ["api.manage"],
         

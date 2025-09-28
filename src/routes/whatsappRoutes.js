@@ -14,6 +14,12 @@ const mustManageWhatsapp = [
   requirePermission("whatsapp.manage"),
 ];
 
+const mustAuthWhatsapp = [
+  authMiddleware,
+  requireFeature("whatsapp"),
+  requirePermission("whatsapp.auth"),
+];
+
 router.get(
   "/account-info",
   ...mustManageWhatsapp,
@@ -36,12 +42,12 @@ router.post(
 );
 router.get(
   "/status",
-  ...mustManageWhatsapp,
+  ...mustAuthWhatsapp,
   whatsappController.getWhatsAppStatus
 );
 router.get(
   "/connect",
-  ...mustManageWhatsapp,
+  ...mustAuthWhatsapp,
   whatsappController.connectToWhatsApp
 );
 router.post(
@@ -51,7 +57,7 @@ router.post(
 );
 router.post(
   "/disconnect",
-  ...mustManageWhatsapp,
+  ...mustAuthWhatsapp,
   whatsappController.disconnectWhatsApp
 );
 

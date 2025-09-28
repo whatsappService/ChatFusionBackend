@@ -2,7 +2,7 @@ require("dotenv").config();
 
 const DIALECT = process.env.DB_DIALECT || "mysql";
 const HOST = process.env.DB_HOST || process.env.MYSQL_HOST || "localhost";
-const PORT = Number(process.env.DB_PORT || process.env.MYSQL_PORT || 3306);
+const PORT = Number(process.env.DB_PORT || process.env.MYSQL_PORT || 3307);
 const DATABASE =
   process.env.DB_NAME || process.env.MYSQL_DB || "whatsapp_portal";
 const USER = process.env.DB_USER || process.env.MYSQL_USER || "root";

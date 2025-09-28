@@ -1,26 +1,21 @@
-require("dotenv").config({
-  path: `.env.${process.env.NODE_ENV || "development"}`,
-});
+require("dotenv").config();
 
-const base = {
-  username: process.env.MYSQL_USER,
-  password: process.env.MYSQL_PASSWORD,
-  database: process.env.MYSQL_DB,
-  host: process.env.MYSQL_HOST,
-  port: Number(process.env.MYSQL_PORT || 3307),
-  dialect: process.env.DB_DIALECT || "mysql",
-  // Persist metadata in DB tables instead of files
-  migrationStorage: "sequelize",
-  migrationStorageTableName: "SequelizeMeta",
-  seederStorage: "sequelize",
-  seederStorageTableName: "SequelizeData",
-  // Timestamps/data handling
-  timezone: "+00:00",
-  dialectOptions: {
-    // Return DATETIME as strings; avoids TZ shifts
-    dateStrings: true,
-    typeCast: true,
-  },
+const DIALECT = process.env.DB_DIALECT || "mysql";
+const HOST = process.env.DB_HOST || process.env.MYSQL_HOST || "localhost";
+const PORT = Number(process.env.DB_PORT || process.env.MYSQL_PORT || 3306);
+const DATABASE =
+  process.env.DB_NAME || process.env.MYSQL_DB || "whatsapp_portal";
+const USER = process.env.DB_USER || process.env.MYSQL_USER || "root";
+const PASS = process.env.DB_PASSWORD || process.env.MYSQL_PASSWORD || "root";
+
+const common = {
+  dialect: DIALECT,
+  host: HOST,
+  port: PORT,
+  database: DATABASE,
+  username: USER,
+  password: PASS,
+  logging: false,
   pool: {
     max: Number(process.env.DB_POOL_MAX || 10),
     min: Number(process.env.DB_POOL_MIN || 0),
@@ -30,12 +25,7 @@ const base = {
 };
 
 module.exports = {
-  development: {
-    ...base,
-    logging: (msg) => console.log(msg),
-  },
-  production: {
-    ...base,
-    logging: false,
-  },
+  development: common,
+  production: common,
+  test: common,
 };

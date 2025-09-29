@@ -16,8 +16,12 @@ exports.getWhatsappAccountInfo = async (req, res) => {
     );
     res.json(whatsappAccountInfo);
   } catch (error) {
-    console.error("Error fetching WhatsApp account info:", error);
-    res.status(500).json({ message: "Internal server error" });
+    console.error("❌ WhatsApp Controller - Error fetching WhatsApp account info:", error);
+    res.status(500).json({ 
+      error: "WhatsApp Account Info Controller Error",
+      message: error.message || "Failed to fetch WhatsApp account info",
+      source: "WhatsApp Controller"
+    });
   }
 };
 
@@ -35,8 +39,12 @@ exports.getApiKeyByBusinessId = async (req, res) => {
 
     res.json({ apiKey });
   } catch (error) {
-    console.error("Error fetching API key by business ID:", error);
-    res.status(500).json({ message: "Internal server error" });
+    console.error("❌ WhatsApp Controller - Error fetching API key by business ID:", error);
+    res.status(500).json({ 
+      error: "API Key Fetch Controller Error",
+      message: error.message || "Failed to fetch API key",
+      source: "WhatsApp Controller"
+    });
   }
 };
 
@@ -54,7 +62,12 @@ exports.resetBusinessApiKey = async (req, res) => {
       apiKey: newApiKey,
     });
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    console.error("❌ WhatsApp Controller - API Key Reset Error:", error);
+    res.status(400).json({ 
+      error: "API Key Reset Controller Error",
+      message: error.message || "Failed to reset API key",
+      source: "WhatsApp Controller"
+    });
   }
 };
 
@@ -73,7 +86,12 @@ exports.updateBusinessApiKey = async (req, res) => {
       apiKey: updatedApiKey,
     });
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    console.error("❌ WhatsApp Controller - API Key Update Error:", error);
+    res.status(400).json({ 
+      error: "API Key Update Controller Error",
+      message: error.message || "Failed to update API key",
+      source: "WhatsApp Controller"
+    });
   }
 };
 // ✅ Get WhatsApp Authentication Status
@@ -83,7 +101,12 @@ exports.getWhatsAppStatus = async (req, res) => {
     const status = await whatsappService.fetchWhatsAppStatus(req.user.id);
     res.json(status);
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    console.error("❌ WhatsApp Controller - Status Fetch Error:", error);
+    res.status(400).json({ 
+      error: "WhatsApp Status Controller Error",
+      message: error.message || "Failed to fetch WhatsApp status",
+      source: "WhatsApp Controller"
+    });
   }
 };
 
@@ -93,7 +116,12 @@ exports.connectToWhatsApp = async (req, res) => {
     const qrData = await whatsappService.connectToWhatsApp(req.user.id);
     res.json(qrData);
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    console.error("❌ WhatsApp Controller - Connect Error:", error);
+    res.status(400).json({ 
+      error: "WhatsApp Connect Controller Error",
+      message: error.message || "Failed to connect to WhatsApp",
+      source: "WhatsApp Controller"
+    });
   }
 };
 exports.checkWhatsAppNumber = async (req, res) => {
@@ -111,10 +139,12 @@ exports.checkWhatsAppNumber = async (req, res) => {
     );
     res.json(result);
   } catch (error) {
-    console.error("Error checking WhatsApp number:", error);
+    console.error("❌ WhatsApp Controller - Number Check Error:", error);
     res.status(400).json({
       success: false,
+      error: "WhatsApp Number Check Controller Error",
       message: error.message || "Failed to check WhatsApp number",
+      source: "WhatsApp Controller"
     });
   }
 };
@@ -135,7 +165,12 @@ exports.disconnectWhatsApp = async (req, res) => {
     );
     res.json(result);
   } catch (error) {
-    console.error("Error disconnecting WhatsApp account:", error);
-    res.status(400).json({ success: false, message: error.message });
+    console.error("❌ WhatsApp Controller - Disconnect Error:", error);
+    res.status(400).json({ 
+      success: false, 
+      error: "WhatsApp Disconnect Controller Error",
+      message: error.message || "Failed to disconnect WhatsApp account",
+      source: "WhatsApp Controller"
+    });
   }
 };

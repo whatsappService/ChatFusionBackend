@@ -52,10 +52,28 @@ async function doSend(apiKey, phone, messages, files = []) {
     }
     return { success: true, message: resp.data?.message, failedMessages: [] };
   } catch (err) {
+    console.error(
+      "❌ Error sending single message via ChatFusion API:",
+      err.response?.data || err.message
+    );
+    
+    let errorMessage = "Message Send Error: ";
+    if (err.response?.status === 401) {
+      errorMessage += "Unauthorized - Invalid API key or expired credentials";
+    } else if (err.response?.status === 404) {
+      errorMessage += "Service not found - ChatFusion API endpoint unavailable";
+    } else if (err.response?.status >= 500) {
+      errorMessage += "ChatFusion server error - External service is down";
+    } else if (err.code === 'ENOTFOUND' || err.code === 'ECONNREFUSED') {
+      errorMessage += "Cannot connect to ChatFusion API - Network or DNS issue";
+    } else {
+      errorMessage += err.message || 'Unknown error occurred';
+    }
+    
     return {
       success: false,
-      message: err.message,
-      failedMessages: [{ error: err.message }],
+      message: errorMessage,
+      failedMessages: [{ error: errorMessage }],
     };
   }
 }
@@ -151,16 +169,29 @@ async function doSendBulk(apiKey, recipients, messages, files = []) {
       console.dir(data, { depth: null, maxArrayLength: 200 });
     }
 
+    let errorMessage = "Bulk Message Send Error: ";
+    if (err.response?.status === 401) {
+      errorMessage += "Unauthorized - Invalid API key or expired credentials";
+    } else if (err.response?.status === 404) {
+      errorMessage += "Service not found - ChatFusion API endpoint unavailable";
+    } else if (err.response?.status >= 500) {
+      errorMessage += "ChatFusion server error - External service is down";
+    } else if (err.code === 'ENOTFOUND' || err.code === 'ECONNREFUSED') {
+      errorMessage += "Cannot connect to ChatFusion API - Network or DNS issue";
+    } else {
+      errorMessage += err.message || 'Unknown error occurred';
+    }
+
     return {
       success: false,
-      message: err.message,
+      message: errorMessage,
       failedMessages: recipients.map((r) => ({
         recipient: r,
         error:
           (Array.isArray(data?.failedMessages) &&
             data.failedMessages.find((f) => f?.recipient === r)?.error) ||
           data?.message ||
-          err.message,
+          errorMessage,
       })),
     };
   }

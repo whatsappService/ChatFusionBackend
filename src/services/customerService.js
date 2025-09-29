@@ -268,6 +268,7 @@ exports.syncWithWhatsApp = async (userId) => {
     throw new Error("API key not found for this business.");
   }
   const CHATFUSION_CONTACT_URL =
+    process.env.CHATFUSION_CONTACT_URL ||
     "https://chatfusion.murraltd.com/api/whatsapp/contact";
   let response;
   try {
@@ -275,7 +276,22 @@ exports.syncWithWhatsApp = async (userId) => {
       headers: { "x-api-key": business.api_key },
     });
   } catch (error) {
-    throw new Error("Failed to fetch WhatsApp contacts: " + error.message);
+    console.error(
+      "❌ Error fetching WhatsApp contacts from ChatFusion API:",
+      error.response?.data || error.message
+    );
+    
+    if (error.response?.status === 401) {
+      throw new Error("WhatsApp Contacts Error: Unauthorized - Invalid API key or expired credentials");
+    } else if (error.response?.status === 404) {
+      throw new Error("WhatsApp Contacts Error: Service not found - ChatFusion API endpoint unavailable");
+    } else if (error.response?.status >= 500) {
+      throw new Error("WhatsApp Contacts Error: ChatFusion server error - External service is down");
+    } else if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
+      throw new Error("WhatsApp Contacts Error: Cannot connect to ChatFusion API - Network or DNS issue");
+    } else {
+      throw new Error(`WhatsApp Contacts Error: ${error.message || 'Unknown error occurred'}`);
+    }
   }
 
   // Ensure contacts is an array

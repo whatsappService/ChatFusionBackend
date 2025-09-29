@@ -7,12 +7,16 @@ const { User, Business } = require("../models/associations");
 
 const WHATSAPP_SERVICE_URL = process.env.WHATSAPP_SERVICE_URL;
 const CHATFUSION_RESET_API_KEY_URL =
+  process.env.CHATFUSION_RESET_API_KEY_URL ||
   "https://chatfusion.murraltd.com/api/auth/reset-api-key";
 const CHATFUSION_UPDATE_API_KEY_URL =
+  process.env.CHATFUSION_UPDATE_API_KEY_URL ||
   "https://chatfusion.murraltd.com/api/auth/update-api-key";
 const CHATFUSION_STATUS_URL =
+  process.env.CHATFUSION_STATUS_URL ||
   "https://chatfusion.murraltd.com/api/whatsapp/status";
 const CHATFUSION_CONNECT_URL =
+  process.env.CHATFUSION_CONNECT_URL ||
   "https://chatfusion.murraltd.com/api/whatsapp/connect";
 const CHATFUSION_CHECK_NUMBER_URL =
   process.env.CHATFUSION_CHECK_NUMBER_URL ||
@@ -173,10 +177,21 @@ exports.fetchWhatsAppStatus = async (userId) => {
     return response.data;
   } catch (error) {
     console.error(
-      "❌ Error fetching WhatsApp status:",
+      "❌ Error fetching WhatsApp status from ChatFusion API:",
       error.response?.data || error.message
     );
-    throw new Error("Failed to fetch WhatsApp status");
+    
+    if (error.response?.status === 401) {
+      throw new Error("WhatsApp Status Error: Unauthorized - Invalid API key or expired credentials");
+    } else if (error.response?.status === 404) {
+      throw new Error("WhatsApp Status Error: Service not found - ChatFusion API endpoint unavailable");
+    } else if (error.response?.status >= 500) {
+      throw new Error("WhatsApp Status Error: ChatFusion server error - External service is down");
+    } else if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
+      throw new Error("WhatsApp Status Error: Cannot connect to ChatFusion API - Network or DNS issue");
+    } else {
+      throw new Error(`WhatsApp Status Error: ${error.message || 'Unknown error occurred'}`);
+    }
   }
 };
 
@@ -198,12 +213,21 @@ exports.connectToWhatsApp = async (userId) => {
     return response.data;
   } catch (error) {
     console.error(
-      "❌ Error connecting to WhatsApp:",
+      "❌ Error connecting to WhatsApp via ChatFusion API:",
       error.response?.data || error.message
     );
-    throw new Error(
-      error.response?.data?.message || "Failed to connect to WhatsApp"
-    );
+    
+    if (error.response?.status === 401) {
+      throw new Error("WhatsApp Connect Error: Unauthorized - Invalid API key or expired credentials");
+    } else if (error.response?.status === 404) {
+      throw new Error("WhatsApp Connect Error: Service not found - ChatFusion API endpoint unavailable");
+    } else if (error.response?.status >= 500) {
+      throw new Error("WhatsApp Connect Error: ChatFusion server error - External service is down");
+    } else if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
+      throw new Error("WhatsApp Connect Error: Cannot connect to ChatFusion API - Network or DNS issue");
+    } else {
+      throw new Error(`WhatsApp Connect Error: ${error.response?.data?.message || error.message || 'Unknown error occurred'}`);
+    }
   }
 };
 
@@ -235,12 +259,21 @@ exports.checkWhatsAppNumber = async (userId, phoneNumber) => {
     return response.data;
   } catch (error) {
     console.error(
-      "Error checking WhatsApp number:",
+      "❌ Error checking WhatsApp number via ChatFusion API:",
       error.response?.data || error.message
     );
-    throw new Error(
-      error.response?.data?.message || "Failed to check WhatsApp number"
-    );
+    
+    if (error.response?.status === 401) {
+      throw new Error("WhatsApp Number Check Error: Unauthorized - Invalid API key or expired credentials");
+    } else if (error.response?.status === 404) {
+      throw new Error("WhatsApp Number Check Error: Service not found - ChatFusion API endpoint unavailable");
+    } else if (error.response?.status >= 500) {
+      throw new Error("WhatsApp Number Check Error: ChatFusion server error - External service is down");
+    } else if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
+      throw new Error("WhatsApp Number Check Error: Cannot connect to ChatFusion API - Network or DNS issue");
+    } else {
+      throw new Error(`WhatsApp Number Check Error: ${error.response?.data?.message || error.message || 'Unknown error occurred'}`);
+    }
   }
 };
 /**

@@ -18,6 +18,7 @@ const usageRoutes = require("./usageRoutes");
 const messageTemplateRoutes = require("./messageTemplateRoutes");
 const messageRoutes = require("./messageRoutes");
 const scheduleRoutes = require("./scheduleRoutes");
+const groupRoutes = require("./groupRoutes");
 
 // Integrations / Ops
 const whatsappRoutes = require("./whatsappRoutes");
@@ -55,6 +56,7 @@ router.use("/message-templates", messageTemplateRoutes);
 router.use("/messages", messageRoutes);
 router.use("/messaging", messageRoutes);
 router.use("/schedules", scheduleRoutes);
+router.use("/group", groupRoutes);
 
 /* ---------- Integrations / Ops ---------- */
 router.use("/whatsapp", whatsappRoutes);

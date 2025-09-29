@@ -37,8 +37,9 @@ async function doSend(apiKey, phone, messages, files = []) {
   );
 
   try {
+    const CHATFUSION_SEND_MESSAGE_URL = process.env.CHATFUSION_SEND_MESSAGE_URL || "https://chatfusion.murraltd.com/api/messaging/send";
     const resp = await axios.post(
-      "http://localhost:5500/api/messaging/send",
+      CHATFUSION_SEND_MESSAGE_URL,
       form,
       { headers: { "x-api-key": apiKey, ...form.getHeaders() } }
     );
@@ -125,8 +126,9 @@ async function doSendBulk(apiKey, recipients, messages, files = []) {
   }
 
   try {
+    const CHATFUSION_SEND_BULK_URL = process.env.CHATFUSION_SEND_BULK_URL || "https://chatfusion.murraltd.com/api/messaging/send-bulk";
     const resp = await axios.post(
-      "http://localhost:5500/api/messaging/send-bulk",
+      CHATFUSION_SEND_BULK_URL,
       form,
       { headers: { "x-api-key": apiKey, ...form.getHeaders() } }
     );

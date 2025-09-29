@@ -1,8 +1,4 @@
 # docker-compose.yml (backend)
-# Usage:
-#   docker-compose up -d                    # Uses .env.production
-#   docker-compose -f docker-compose.yml -f docker-compose.override.yml up -d  # Uses custom env
-
 services:
   backend:
     container_name: chatfusion_backend
@@ -10,25 +6,21 @@ services:
     restart: always
     ports:
       - "5550:5550"
-    env_file:
-      - .env.production
     environment:
-      # Override database connection for Docker
-      MYSQL_HOST: host.docker.internal
-      MYSQL_PORT: 3307
-      # Ensure production mode
       NODE_ENV: production
-      # Trust proxy for Docker
-      TRUST_PROXY: true
+      DB_DIALECT: mysql
+      MYSQL_HOST: mysql_db     # <-- service name
+      MYSQL_PORT: 3306         # <-- container's port
+      MYSQL_USER: root
+      MYSQL_PASSWORD: root
+      MYSQL_DB: whatsapp_portal
+      DB_POOL_MAX: 10
+      DB_POOL_MIN: 0
+      DB_POOL_IDLE: 10000
+      DB_POOL_ACQUIRE: 30000
     networks:
       - whatsapp_network
     command: sh -c "npm start"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5550/healthz"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
 
 networks:
   whatsapp_network:

@@ -267,9 +267,8 @@ exports.syncWithWhatsApp = async (userId) => {
   if (!business || !business.api_key) {
     throw new Error("API key not found for this business.");
   }
-  const CHATFUSION_CONTACT_URL =
-    process.env.CHATFUSION_CONTACT_URL ||
-    "https://chatfusion.murraltd.com/api/whatsapp/contact";
+  const CHATFUSION_BASE_URL = process.env.CHATFUSION_BASE_URL || "http://localhost:5500/api";
+  const CHATFUSION_CONTACT_URL = process.env.CHATFUSION_WHATSAPP_CONTACT_URL || `${CHATFUSION_BASE_URL}/whatsapp/contact`;
   let response;
   try {
     response = await axios.get(CHATFUSION_CONTACT_URL, {

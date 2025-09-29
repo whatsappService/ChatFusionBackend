@@ -6,26 +6,14 @@ dotenv.config();
 const { User, Business } = require("../models/associations");
 
 const WHATSAPP_SERVICE_URL = process.env.WHATSAPP_SERVICE_URL;
-const CHATFUSION_RESET_API_KEY_URL =
-  process.env.CHATFUSION_RESET_API_KEY_URL ||
-  "https://chatfusion.murraltd.com/api/auth/reset-api-key";
-const CHATFUSION_UPDATE_API_KEY_URL =
-  process.env.CHATFUSION_UPDATE_API_KEY_URL ||
-  "https://chatfusion.murraltd.com/api/auth/update-api-key";
-const CHATFUSION_STATUS_URL =
-  process.env.CHATFUSION_STATUS_URL ||
-  "https://chatfusion.murraltd.com/api/whatsapp/status";
-const CHATFUSION_CONNECT_URL =
-  process.env.CHATFUSION_CONNECT_URL ||
-  "https://chatfusion.murraltd.com/api/whatsapp/connect";
-const CHATFUSION_CHECK_NUMBER_URL =
-  process.env.CHATFUSION_CHECK_NUMBER_URL ||
-  "https://chatfusion.murraltd.com/api/whatsapp/check-whatsapp-number";
-
-// New: endpoint to disconnect an active WhatsApp session
-const CHATFUSION_DISCONNECT_URL =
-  process.env.CHATFUSION_DISCONNECT_URL ||
-  "https://chatfusion.murraltd.com/api/whatsapp/disconnect";
+const CHATFUSION_BASE_URL = process.env.CHATFUSION_BASE_URL || "http://localhost:5500/api";
+const CHATFUSION_AUTH_PROFILE_URL = process.env.CHATFUSION_AUTH_PROFILE_URL || `${CHATFUSION_BASE_URL}/auth/profile`;
+const CHATFUSION_RESET_API_KEY_URL = process.env.CHATFUSION_AUTH_RESET_KEY_URL || `${CHATFUSION_BASE_URL}/auth/reset-api-key`;
+const CHATFUSION_UPDATE_API_KEY_URL = process.env.CHATFUSION_AUTH_UPDATE_KEY_URL || `${CHATFUSION_BASE_URL}/auth/update-api-key`;
+const CHATFUSION_STATUS_URL = process.env.CHATFUSION_WHATSAPP_STATUS_URL || `${CHATFUSION_BASE_URL}/whatsapp/status`;
+const CHATFUSION_CONNECT_URL = process.env.CHATFUSION_WHATSAPP_CONNECT_URL || `${CHATFUSION_BASE_URL}/whatsapp/connect`;
+const CHATFUSION_CHECK_NUMBER_URL = process.env.CHATFUSION_WHATSAPP_CHECK_NUMBER_URL || `${CHATFUSION_BASE_URL}/whatsapp/check-whatsapp-number`;
+const CHATFUSION_DISCONNECT_URL = process.env.CHATFUSION_WHATSAPP_DISCONNECT_URL || `${CHATFUSION_BASE_URL}/whatsapp/disconnect`;
 
 
 /**
@@ -73,7 +61,7 @@ exports.fetchWhatsappAccountInfo = async (apiKey) => {
       );
     }
 
-    const response = await axios.get(`${WHATSAPP_SERVICE_URL}/auth/profile`, {
+    const response = await axios.get(CHATFUSION_AUTH_PROFILE_URL, {
       headers: { "x-api-key": apiKey },
     });
 

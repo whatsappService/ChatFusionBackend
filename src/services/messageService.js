@@ -37,7 +37,8 @@ async function doSend(apiKey, phone, messages, files = []) {
   );
 
   try {
-    const CHATFUSION_SEND_MESSAGE_URL = process.env.CHATFUSION_SEND_MESSAGE_URL || "https://chatfusion.murraltd.com/api/messaging/send";
+    const CHATFUSION_BASE_URL = process.env.CHATFUSION_BASE_URL || "http://localhost:5500/api";
+    const CHATFUSION_SEND_MESSAGE_URL = process.env.CHATFUSION_MESSAGING_SEND_URL || `${CHATFUSION_BASE_URL}/messaging/send`;
     const resp = await axios.post(
       CHATFUSION_SEND_MESSAGE_URL,
       form,
@@ -126,7 +127,8 @@ async function doSendBulk(apiKey, recipients, messages, files = []) {
   }
 
   try {
-    const CHATFUSION_SEND_BULK_URL = process.env.CHATFUSION_SEND_BULK_URL || "https://chatfusion.murraltd.com/api/messaging/send-bulk";
+    const CHATFUSION_BASE_URL = process.env.CHATFUSION_BASE_URL || "http://localhost:5500/api";
+    const CHATFUSION_SEND_BULK_URL = process.env.CHATFUSION_MESSAGING_SEND_BULK_URL || `${CHATFUSION_BASE_URL}/messaging/sendBulk`;
     const resp = await axios.post(
       CHATFUSION_SEND_BULK_URL,
       form,

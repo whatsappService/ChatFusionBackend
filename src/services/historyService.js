@@ -7,7 +7,7 @@ const logger = require("../utils/logger");
 const generateExcelReport = require("../utils/excelGenerator");
 require("dotenv").config();
 
-const API_BASE = process.env.WHATSAPP_SERVICE_URL;
+const API_BASE = process.env.CHATFUSION_BASE_URL || process.env.WHATSAPP_SERVICE_URL || "http://localhost:5500/api";
 const needBase = () => {
   if (!API_BASE) throw new Error("WHATSAPP_SERVICE_URL is not defined");
 };
@@ -22,7 +22,7 @@ exports.fetchUserMessages = async (userId, queryParams) => {
   });
   const apiKey = user?.business?.api_key;
   if (!apiKey) throw new Error("API key not found for this business");
-  const url = `${API_BASE}/history/user-messages`;
+  const url = `${API_BASE}/history`;
 
   logger.info("Fetching user messages from:", url);
   const response = await axios.get(url, {
@@ -59,7 +59,7 @@ exports.fetchHistoryBetweenDates = async (userId, queryParams) => {
     limit: parseInt(limit)
   };
 
-  const url = `${API_BASE}/history/user-history`;
+  const url = `${API_BASE}/history/date-range`;
   console.log("Fetching history between dates from:", url, "with params:", apiParams);
 
   const response = await axios.get(url, {

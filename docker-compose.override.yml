@@ -1,0 +1,21 @@
+# docker-compose.override.yml (development)
+# This file is automatically used by docker-compose for development
+# Usage: docker-compose up -d
+
+services:
+  backend:
+    container_name: chatfusion_backend_dev
+    env_file:
+      - .env.development
+    environment:
+      # Override for development
+      MYSQL_HOST: host.docker.internal
+      MYSQL_PORT: 3307
+      NODE_ENV: development
+      DEBUG: "true"
+    ports:
+      - "5550:5550"
+    volumes:
+      - ./logs:/usr/src/app/logs
+      - ./uploads:/usr/src/app/uploads
+    command: sh -c "npm run dev || npm start"

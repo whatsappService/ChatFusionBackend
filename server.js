@@ -26,15 +26,22 @@ app.disable("x-powered-by");
  * Set TRUST_PROXY to a number (e.g., "1") or "true" for all.
  */
 const TRUST_PROXY = process.env.TRUST_PROXY;
-if (TRUST_PROXY) {
+if (TRUST_PROXY && TRUST_PROXY !== "false" && TRUST_PROXY !== "0") {
   // number → trust first N hops, "true" → trust all, "loopback" → local proxies only
-  const tp =
-    TRUST_PROXY === "true"
-      ? true
-      : isNaN(Number(TRUST_PROXY))
-      ? TRUST_PROXY
-      : Number(TRUST_PROXY);
-  app.set("trust proxy", tp);
+  let tp;
+  if (TRUST_PROXY === "true") {
+    tp = true;
+  } else if (!isNaN(Number(TRUST_PROXY)) && Number(TRUST_PROXY) > 0) {
+    tp = Number(TRUST_PROXY);
+  } else if (TRUST_PROXY === "loopback") {
+    tp = "loopback";
+  } else {
+    // Skip setting trust proxy for invalid values
+    console.log(`⚠️  Invalid TRUST_PROXY value: ${TRUST_PROXY}, skipping trust proxy setup`);
+  }
+  if (tp !== undefined) {
+    app.set("trust proxy", tp);
+  }
 }
 
 /**

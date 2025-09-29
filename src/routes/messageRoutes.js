@@ -42,7 +42,7 @@ router.post(
   "/send-single",
   authenticateUser,
   requireFeature("single_messages"),
-  requirePermission("messages.send.single"),
+  requirePermission("messages.send"),
   upload.any(),
   requireMediaIfFiles,
   messageController.sendSingleMessage
@@ -53,7 +53,7 @@ router.post(
   "/sendSingleMessage",
   authenticateUser,
   requireFeature("single_messages"),
-  requirePermission("messages.send.single"),
+  requirePermission("messages.send"),
   upload.any(),
   requireMediaIfFiles,
   messageController.sendSingleMessage
@@ -64,7 +64,7 @@ router.post(
   "/sendBulk",
   authenticateUser,
   requireFeature("bulk_send"),
-  requirePermission("messages.send.bulk"),
+  requirePermission("messages.bulk"),
   upload.fields([
     { name: "globalFiles", maxCount: 10 },
     { name: "personalFiles", maxCount: 50 },

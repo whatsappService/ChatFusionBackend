@@ -7,10 +7,13 @@ const BusinessPackageController = require("../controllers/BusinessPackageControl
 
 // Replace these with your real middlewares
 const authenticateUser = require("../middleware/authMiddleware");
-const roleMiddleware = require("../middleware/roleMiddleware");
+const requirePermission = require("../middleware/requirePermission");
+const requireFeature = require("../middleware/requireFeature");
 
-// OPTIONAL: gate by role (e.g. super-admin or business-admin)
-const requireBusinessAdmin = roleMiddleware(["super-admin", "business-admin"]);
+// Package management permissions
+const requirePackageRead = requirePermission(["packages.read", "packages.manage", "*"]);
+const requirePackageWrite = requirePermission(["packages.create", "packages.update", "packages.manage", "*"]);
+const requirePackageManage = requirePermission(["packages.manage", "*"]);
 
 /**
  * This router is intended to be mounted at:
@@ -23,13 +26,15 @@ const requireBusinessAdmin = roleMiddleware(["super-admin", "business-admin"]);
 router.get(
   "/",
   authenticateUser,
-  requireBusinessAdmin,
+  requireFeature("packages"),
+  requirePackageRead,
   BusinessPackageController.list
 );
 router.post(
   "/",
   authenticateUser,
-  requireBusinessAdmin,
+  requireFeature("packages"),
+  requirePackageWrite,
   BusinessPackageController.create
 );
 
@@ -37,19 +42,22 @@ router.post(
 router.get(
   "/:packageId",
   authenticateUser,
-  requireBusinessAdmin,
+  requireFeature("packages"),
+  requirePackageRead,
   BusinessPackageController.get
 );
 router.put(
   "/:packageId",
   authenticateUser,
-  requireBusinessAdmin,
+  requireFeature("packages"),
+  requirePackageWrite,
   BusinessPackageController.update
 );
 router.delete(
   "/:packageId",
   authenticateUser,
-  requireBusinessAdmin,
+  requireFeature("packages"),
+  requirePackageManage,
   BusinessPackageController.remove
 );
 
@@ -57,19 +65,22 @@ router.delete(
 router.get(
   "/:packageId/users",
   authenticateUser,
-  requireBusinessAdmin,
+  requireFeature("packages"),
+  requirePackageRead,
   BusinessPackageController.listPackageAssignments
 );
 router.post(
   "/:packageId/users/:userId",
   authenticateUser,
-  requireBusinessAdmin,
+  requireFeature("packages"),
+  requirePackageManage,
   BusinessPackageController.assignUser
 );
 router.delete(
   "/:packageId/users/:userId",
   authenticateUser,
-  requireBusinessAdmin,
+  requireFeature("packages"),
+  requirePackageManage,
   BusinessPackageController.unassignUser
 );
 

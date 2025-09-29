@@ -444,49 +444,52 @@ module.exports = {
 
       // ---------- 4) features ----------
       const features = [
-        // Messaging Features
-        [
-          "scheduled_messages",
-          "Scheduled Messages",
-          "Create one-off and recurring schedules",
-        ],
-        [
-          "single_messages",
-          "Single Messages",
-          "Send immediate one-to-one messages",
-        ],
-        ["bulk_send", "Bulk Send", "Send to many recipients with pacing"],
-        ["media_attachments", "Media Attachments", "Send images, docs, voice"],
-        
         // Customer Management
-        ["customers", "Customers", "Manage customer directory & segments"],
+        ["customers", "Customer Management", "Manage customer database, categories, and segmentation"],
         ["categories", "Customer Categories", "Manage customer categories"],
         
+        // Message System
+        ["single_messages", "Single Messages", "Send individual messages"],
+        ["bulk_send", "Bulk Messages", "Send bulk messages"],
+        ["group_messages", "Group Messages", "Send group messages"],
+        ["scheduled_messages", "Scheduled Messages", "Schedule and manage message delivery"],
+        ["media_attachments", "Media Attachments", "Upload and manage media files"],
+        
         // Templates & Content
-        ["templates", "Templates", "Manage message templates"],
+        ["templates", "Message Templates", "Create and manage message templates"],
         ["placeholders", "Placeholders", "Manage message placeholders"],
         
-        // Analytics & Reports
-        ["reports", "Reports", "Delivery stats and charts"],
+        // Reports & Analytics
+        ["reports", "Reports", "Generate and view analytics reports"],
         ["analytics", "Analytics", "Advanced analytics and insights"],
         
-        // Integrations
-        ["whatsapp", "WhatsApp Integration", "WhatsApp integration & auth"],
-        ["webhooks", "Webhooks", "Receive delivery/receipt events"],
-        ["api_access", "API Access", "Use REST endpoints & tokens"],
-        
         // User Management
-        ["users", "Users", "Manage users and permissions"],
+        ["users", "User Management", "Manage system users and their access"],
         ["multi_user", "Multi-User", "Multi-user management features"],
         
-        // System Administration
+        // Package Management
+        ["packages", "Package Management", "Manage user packages and permissions"],
+        
+        // WhatsApp Integration
+        ["whatsapp", "WhatsApp Integration", "Configure WhatsApp API and authentication"],
+        
+        // Media Management
+        ["media", "Media Management", "Upload and manage media files"],
+        
+        // Settings & Configuration
+        ["settings", "Settings", "System configuration and settings"],
         ["features", "Feature Flags", "Manage feature toggles and rollout"],
-        ["packages", "Packages", "Packages & pricing management (UI gate)"],
-        ["settings", "Settings", "Settings section (UI gate)"],
+        
+        // Support System
+        ["support", "Support System", "Access help and support resources"],
         
         // AI & Automation
         ["chatbot", "Chatbot", "Chatbot configuration & runtime"],
         ["ai_chatbot", "AI Chatbot", "AI-powered chatbot features"],
+        
+        // Integrations
+        ["webhooks", "Webhooks", "Receive delivery/receipt events"],
+        ["api_access", "API Access", "Use REST endpoints & tokens"],
       ];
       for (const [code, name, description] of features) {
         await sequelize.query(
@@ -539,36 +542,49 @@ module.exports = {
       });
 
       // ---------- 7) permission catalog ----------
-      // Clean, non-duplicated permissions based on actual backend requirements
+      // Comprehensive permissions based on complete feature set
       const PERMISSIONS_BY_FEATURE = {
-        // Messaging Features
-        single_messages: ["messages.send.single"],
-        bulk_send: ["messages.send.bulk"],
-        scheduled_messages: [
-          "schedules.read",
-          "schedules.create", 
-          "schedules.update",
-          "schedules.delete",
-        ],
-        media_attachments: ["media.upload"],
-        
         // Customer Management
         customers: [
           "customers.read",
           "customers.create",
-          "customers.update", 
+          "customers.update",
           "customers.delete",
-          "customers.template.download",
-          "customers.sync",
-          "customers.import",
+          "customers.manage",
         ],
-        
-        // Categories (for customers)
         categories: [
           "categories.read",
           "categories.create",
           "categories.update",
           "categories.delete",
+        ],
+        
+        // Message System
+        single_messages: [
+          "messages.read",
+          "messages.send",
+        ],
+        bulk_send: [
+          "messages.read",
+          "messages.send",
+          "messages.bulk",
+        ],
+        group_messages: [
+          "messages.read",
+          "messages.send",
+          "messages.group",
+        ],
+        scheduled_messages: [
+          "schedules.read",
+          "schedules.create",
+          "schedules.update",
+          "schedules.delete",
+          "schedules.manage",
+        ],
+        media_attachments: [
+          "media.read",
+          "media.upload",
+          "media.delete",
         ],
         
         // Templates & Content
@@ -577,9 +593,8 @@ module.exports = {
           "templates.create",
           "templates.update",
           "templates.delete",
+          "templates.manage",
         ],
-        
-        // Placeholders (for message templates)
         placeholders: [
           "placeholders.read",
           "placeholders.create",
@@ -587,39 +602,85 @@ module.exports = {
           "placeholders.delete",
         ],
         
-        // Analytics & Reports
+        // Reports & Analytics
         reports: [
-          "reports.view",
+          "reports.read",
           "reports.export",
+          "reports.manage",
         ],
         analytics: [
+          "reports.read",
+          "reports.export",
           "analytics.view",
-          "reports.export", // analytics can also export reports
         ],
-        
-        // Integrations
-        whatsapp: ["whatsapp.auth", "whatsapp.manage"],
-        webhooks: ["webhooks.manage"],
-        api_access: ["api.manage"],
         
         // User Management
         users: [
-          "users.view",
+          "users.read",
           "users.create",
           "users.update",
           "users.delete",
-          "users.manage", // includes users.read, users.write, users.invite
+          "users.manage",
         ],
-        multi_user: ["users.read", "users.write"], // subset for multi-user features
+        multi_user: [
+          "users.read",
+          "users.create",
+          "users.update",
+        ],
         
-        // System Administration
-        features: ["features.read", "features.write"],
-        packages: ["packages.manage"],
-        settings: [], // no specific permissions needed
+        // Package Management
+        packages: [
+          "packages.read",
+          "packages.create",
+          "packages.update",
+          "packages.delete",
+          "packages.manage",
+        ],
+        
+        // WhatsApp Integration
+        whatsapp: [
+          "whatsapp.read",
+          "whatsapp.manage",
+          "whatsapp.auth",
+        ],
+        
+        // Media Management
+        media: [
+          "media.read",
+          "media.upload",
+          "media.delete",
+          "media.manage",
+        ],
+        
+        // Settings & Configuration
+        settings: [
+          "settings.read",
+          "settings.update",
+          "settings.manage",
+        ],
+        features: [
+          "features.read",
+          "features.write",
+        ],
+        
+        // Support System
+        support: [], // No specific permissions (public access)
         
         // AI & Automation
-        chatbot: ["chatbot.manage"],
-        ai_chatbot: ["chatbot.manage"], // same as chatbot
+        chatbot: [
+          "chatbot.manage",
+        ],
+        ai_chatbot: [
+          "chatbot.manage",
+        ],
+        
+        // Integrations
+        webhooks: [
+          "webhooks.manage",
+        ],
+        api_access: [
+          "api.manage",
+        ],
       };
 
       const ALL_PERMS = Array.from(

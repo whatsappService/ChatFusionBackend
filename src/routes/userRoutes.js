@@ -10,14 +10,14 @@ const auth = require("../middleware/authMiddleware");
 const requirePermission = require("../middleware/requirePermission");
 
 const canRead = requirePermission(["users.read", "users.manage", "*"]);
-const canWrite = requirePermission(["users.write", "users.manage", "*"]);
+const canWrite = requirePermission(["users.create", "users.update", "users.manage", "*"]);
 const canManage = requirePermission(["users.manage", "*"]);
 
 // ======== Flat shape (/users) with precise perms ========
 router.get(
   "/",
   auth,
-  requirePermission(["users.view", "*"]),
+  requirePermission(["users.read", "*"]),
   userController.getAllUsers
 );
 router.post(
@@ -29,7 +29,7 @@ router.post(
 router.get(
   "/:id",
   auth,
-  requirePermission(["users.view", "*"]),
+  requirePermission(["users.read", "*"]),
   userController.getUserById
 );
 router.put(
@@ -95,7 +95,7 @@ router.get(
   "/businesses/:businessId/users/:userId/effective-access",
   auth,
   canRead,
-  requirePermission(["users.view", "*"]),
+  requirePermission(["users.read", "*"]),
   userController.getEffectiveAccess
 );
 

@@ -8,9 +8,9 @@ services:
     environment:
       NODE_ENV: production
       DB_DIALECT: mysql
-      # The backend container talks to mysql_db over the Docker network:
-      MYSQL_HOST: mysql_db
-      MYSQL_PORT: 3306          # ✅ just a number
+      # Use external MySQL database on host port 3307:
+      MYSQL_HOST: host.docker.internal
+      MYSQL_PORT: 3307          # ✅ external port
       MYSQL_USER: root
       MYSQL_PASSWORD: root
       MYSQL_DB: whatsapp_portal

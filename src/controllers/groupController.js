@@ -7,12 +7,18 @@ const groupService = require("../services/groupService");
 exports.getGroups = async (req, res) => {
   try {
     const userId = req.user.id;
-    const groups = await groupService.getWhatsAppGroups(userId);
+    const result = await groupService.getWhatsAppGroups(userId);
     
+    // If the service returns a structured response (when service is unavailable)
+    if (result && typeof result === 'object' && result.hasOwnProperty('success')) {
+      return res.json(result);
+    }
+    
+    // If the service returns raw data (when service is available)
     res.json({
       success: true,
       message: "Groups retrieved successfully",
-      data: groups
+      data: result
     });
   } catch (error) {
     console.error("❌ Error in getGroups controller:", error);

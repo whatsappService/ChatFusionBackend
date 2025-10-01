@@ -71,6 +71,12 @@ exports.fetchWhatsappAccountInfo = async (apiKey) => {
       "❌ Error calling WhatsApp service:",
       error.response?.data || error.message
     );
+    
+    // Handle ChatFusion API error response format
+    if (error.response?.data?.success === false && error.response?.data?.statusCode === 401) {
+      throw new Error("Invalid API key - Please check your API key and try again");
+    }
+    
     throw new Error(
       error.response?.data?.message || "Failed to fetch WhatsApp account info"
     );
@@ -205,6 +211,11 @@ exports.connectToWhatsApp = async (userId) => {
       error.response?.data || error.message
     );
     
+    // Handle ChatFusion API error response format
+    if (error.response?.data?.success === false && error.response?.data?.statusCode === 401) {
+      throw new Error("Invalid API key - Please check your API key and try again");
+    }
+    
     if (error.response?.status === 401) {
       throw new Error("WhatsApp Connect Error: Unauthorized - Invalid API key or expired credentials");
     } else if (error.response?.status === 404) {
@@ -250,6 +261,11 @@ exports.checkWhatsAppNumber = async (userId, phoneNumber) => {
       "❌ Error checking WhatsApp number via ChatFusion API:",
       error.response?.data || error.message
     );
+    
+    // Handle ChatFusion API error response format
+    if (error.response?.data?.success === false && error.response?.data?.statusCode === 401) {
+      throw new Error("Invalid API key - Please check your API key and try again");
+    }
     
     if (error.response?.status === 401) {
       throw new Error("WhatsApp Number Check Error: Unauthorized - Invalid API key or expired credentials");

@@ -49,8 +49,8 @@ exports.revokeKey = async (business_id) => {
 exports.deleteKey = exports.revokeKey;
 
 exports.listScopes = async () => ([
-  { code: "messages.send",    description: "Send single message" },
-  { code: "messages.bulk",    description: "Send bulk messages" },
+  { code: "messages.send.single",    description: "Send single message" },
+  { code: "messages.send.bulk",    description: "Send bulk messages" },
   { code: "schedules.manage", description: "Create/update schedules" },
   { code: "media.upload",     description: "Attach media" },
   { code: "customers.read",   description: "Read customers" },

@@ -444,52 +444,50 @@ module.exports = {
 
       // ---------- 4) features ----------
       const features = [
+        // Messaging Features
+        [
+          "scheduled_messages",
+          "Scheduled Messages",
+          "Create one-off and recurring schedules",
+        ],
+        [
+          "single_messages",
+          "Single Messages",
+          "Send immediate one-to-one messages",
+        ],
+        ["bulk_send", "Bulk Send", "Send to many recipients with pacing"],
+        ["media_attachments", "Media Attachments", "Send images, docs, voice"],
+        
         // Customer Management
-        ["customers", "Customer Management", "Manage customer database, categories, and segmentation"],
+        ["customers", "Customers", "Manage customer directory & segments"],
         ["categories", "Customer Categories", "Manage customer categories"],
         
-        // Message System
-        ["single_messages", "Single Messages", "Send individual messages"],
-        ["bulk_send", "Bulk Messages", "Send bulk messages"],
-        ["group_messages", "Group Messages", "Send group messages"],
-        ["scheduled_messages", "Scheduled Messages", "Schedule and manage message delivery"],
-        ["media_attachments", "Media Attachments", "Upload and manage media files"],
-        
         // Templates & Content
-        ["templates", "Message Templates", "Create and manage message templates"],
+        ["templates", "Templates", "Manage message templates"],
         ["placeholders", "Placeholders", "Manage message placeholders"],
         
-        // Reports & Analytics
-        ["reports", "Reports", "Generate and view analytics reports"],
+        // Analytics & Reports
+        ["reports", "Reports", "Delivery stats and charts"],
         ["analytics", "Analytics", "Advanced analytics and insights"],
+        ["group_messages", "Group Messages", "Send group messages"],
+        
+        // Integrations
+        ["whatsapp", "WhatsApp Integration", "WhatsApp integration & auth"],
+        ["webhooks", "Webhooks", "Receive delivery/receipt events"],
+        ["api_access", "API Access", "Use REST endpoints & tokens"],
         
         // User Management
-        ["users", "User Management", "Manage system users and their access"],
+        ["users", "Users", "Manage users and permissions"],
         ["multi_user", "Multi-User", "Multi-user management features"],
         
-        // Package Management
-        ["packages", "Package Management", "Manage user packages and permissions"],
-        
-        // WhatsApp Integration
-        ["whatsapp", "WhatsApp Integration", "Configure WhatsApp API and authentication"],
-        
-        // Media Management
-        ["media", "Media Management", "Upload and manage media files"],
-        
-        // Settings & Configuration
-        ["settings", "Settings", "System configuration and settings"],
+        // System Administration
         ["features", "Feature Flags", "Manage feature toggles and rollout"],
-        
-        // Support System
-        ["support", "Support System", "Access help and support resources"],
+        ["packages", "Packages", "Packages & pricing management (UI gate)"],
+        ["settings", "Settings", "Settings section (UI gate)"],
         
         // AI & Automation
         ["chatbot", "Chatbot", "Chatbot configuration & runtime"],
         ["ai_chatbot", "AI Chatbot", "AI-powered chatbot features"],
-        
-        // Integrations
-        ["webhooks", "Webhooks", "Receive delivery/receipt events"],
-        ["api_access", "API Access", "Use REST endpoints & tokens"],
       ];
       for (const [code, name, description] of features) {
         await sequelize.query(
@@ -542,49 +540,38 @@ module.exports = {
       });
 
       // ---------- 7) permission catalog ----------
-      // Comprehensive permissions based on complete feature set
+      // Clean, non-duplicated permissions based on actual backend requirements
       const PERMISSIONS_BY_FEATURE = {
+        // Messaging Features
+        single_messages: ["messages.send.single", "messages.single.view"],
+        bulk_send: ["messages.send.bulk", "messages.bulk.view"],
+        group_messages: ["messages.groups.view"],
+        scheduled_messages: [
+          "schedules.read",
+          "schedules.create", 
+          "schedules.update",
+          "schedules.delete",
+        ],
+        media_attachments: ["media.upload"],
+        
         // Customer Management
         customers: [
           "customers.read",
           "customers.create",
-          "customers.update",
+          "categories.create",
+          "customers.update", 
           "customers.delete",
-          "customers.manage",
+          "customers.template.download",
+          "customers.sync",
+          "customers.import",
         ],
+        
+        // Categories (for customers)
         categories: [
           "categories.read",
           "categories.create",
           "categories.update",
           "categories.delete",
-        ],
-        
-        // Message System
-        single_messages: [
-          "messages.read",
-          "messages.send",
-        ],
-        bulk_send: [
-          "messages.read",
-          "messages.send",
-          "messages.bulk",
-        ],
-        group_messages: [
-          "messages.read",
-          "messages.send",
-          "messages.group",
-        ],
-        scheduled_messages: [
-          "schedules.read",
-          "schedules.create",
-          "schedules.update",
-          "schedules.delete",
-          "schedules.manage",
-        ],
-        media_attachments: [
-          "media.read",
-          "media.upload",
-          "media.delete",
         ],
         
         // Templates & Content
@@ -593,8 +580,9 @@ module.exports = {
           "templates.create",
           "templates.update",
           "templates.delete",
-          "templates.manage",
         ],
+        
+        // Placeholders (for message templates)
         placeholders: [
           "placeholders.read",
           "placeholders.create",
@@ -602,85 +590,39 @@ module.exports = {
           "placeholders.delete",
         ],
         
-        // Reports & Analytics
+        // Analytics & Reports
         reports: [
-          "reports.read",
+          "reports.view",
           "reports.export",
-          "reports.manage",
         ],
         analytics: [
-          "reports.read",
-          "reports.export",
           "analytics.view",
-        ],
-        
-        // User Management
-        users: [
-          "users.read",
-          "users.create",
-          "users.update",
-          "users.delete",
-          "users.manage",
-        ],
-        multi_user: [
-          "users.read",
-          "users.create",
-          "users.update",
-        ],
-        
-        // Package Management
-        packages: [
-          "packages.read",
-          "packages.create",
-          "packages.update",
-          "packages.delete",
-          "packages.manage",
-        ],
-        
-        // WhatsApp Integration
-        whatsapp: [
-          "whatsapp.read",
-          "whatsapp.manage",
-          "whatsapp.auth",
-        ],
-        
-        // Media Management
-        media: [
-          "media.read",
-          "media.upload",
-          "media.delete",
-          "media.manage",
-        ],
-        
-        // Settings & Configuration
-        settings: [
-          "settings.read",
-          "settings.update",
-          "settings.manage",
-        ],
-        features: [
-          "features.read",
-          "features.write",
-        ],
-        
-        // Support System
-        support: [], // No specific permissions (public access)
-        
-        // AI & Automation
-        chatbot: [
-          "chatbot.manage",
-        ],
-        ai_chatbot: [
-          "chatbot.manage",
+          "reports.export", // analytics can also export reports
         ],
         
         // Integrations
-        webhooks: [
-          "webhooks.manage",
+        whatsapp: ["whatsapp.manage","whatsapp.auth"],
+        webhooks: ["webhooks.manage"],
+        api_access: ["api.manage"],
+        
+        // User Management
+        users: [
+          "users.view",
+          "users.create",
+          "users.update",
+          "users.delete",
+          "users.manage", // includes users.read, users.write, users.invite
         ],
-        api_access: [
-          "api.manage",
-        ],
+        multi_user: ["users.read", "users.write"], // subset for multi-user features
+        
+        // System Administration
+        features: ["features.read", "features.write"],
+        packages: ["packages.manage"],
+        settings: [], // no specific permissions needed
+        
+        // AI & Automation
+        chatbot: ["chatbot.manage"],
+        ai_chatbot: ["chatbot.manage"], // same as chatbot
       };
 
       const ALL_PERMS = Array.from(
@@ -750,7 +692,6 @@ module.exports = {
         enabled: false,
       });
       for (const p of [
-        "messages.read",
         "media.upload",
         "customers.read",
         "templates.read",
@@ -795,9 +736,6 @@ module.exports = {
         enabled: false,
       });
       for (const p of [
-        "messages.read",
-        "messages.send.single",
-        "messages.send.bulk",
         "customers.read",
       ]) {
         await upsertPackagePerm({ package_id: messengerPkg.id, perm: p });
@@ -927,16 +865,6 @@ module.exports = {
         meta_json: JSON.stringify({ usage_cap: { period: "DAY", cap: 100 } }),
       });
 
-      await upsertUserPermission({
-        user_id: customUser.id,
-        perm: "messages.read",
-        effect: "ALLOW",
-      });
-      await upsertUserPermission({
-        user_id: customUser.id,
-        perm: "messages.send.single",
-        effect: "DENY",
-      });
       await upsertUserPermission({
         user_id: customUser.id,
         perm: "reports.view",
@@ -1799,9 +1727,6 @@ module.exports = {
 
       // Remove catalog rows we seeded (keep table)
       const seededPerms = [
-        "messages.read",
-        "messages.send.single",
-        "messages.send.bulk",
         "schedules.read",
         "schedules.create",
         "schedules.update",

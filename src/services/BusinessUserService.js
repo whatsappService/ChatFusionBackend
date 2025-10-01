@@ -83,8 +83,6 @@ const CANONICAL_PERMS = [
   "features.write",
   "customers.read",
   "customers.write",
-  "messages.read",
-  "messages.send",
   "templates.read",
   "templates.write",
   "reports.view",

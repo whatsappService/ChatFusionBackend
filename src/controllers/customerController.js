@@ -133,14 +133,20 @@ exports.syncWithWhatsApp = async (req, res) => {
   try {
     console.log("syncWithWhatsApp called for user:", req.user.id);
     const result = await customerService.syncWithWhatsApp(req.user.id);
-    // Return the result as JSON. The reportBuffer is sent as a base64 string.
+    
+    // Return simplified response with just phone numbers and names
     res.json({
       success: true,
-      data: {
-        // Convert the buffer to base64 so it can be handled on the client side.
-        reportBuffer: result.reportBuffer.toString("base64"),
-        summary: result.summary,
+      message: "WhatsApp contacts synced successfully",
+      summary: {
+        total: result.summary.total,
+        added: result.summary.added,
+        skipped: result.summary.skipped,
+        errors: result.summary.errors
       },
+      // Include the Excel report for download if needed
+      reportBuffer: result.reportBuffer.toString("base64"),
+      note: "These are your WhatsApp contacts from the connected account"
     });
   } catch (error) {
     console.error("Error syncing with WhatsApp:", error);
@@ -188,6 +194,51 @@ exports.downloadImportTemplate = async (req, res) => {
     res.send(buffer);
   } catch (error) {
     console.error("Error generating import template:", error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+/**
+ * Download WhatsApp sync report as Excel file.
+ * This endpoint performs the sync operation and returns the report as a downloadable Excel file.
+ */
+exports.downloadSyncReport = async (req, res) => {
+  try {
+    const language = req.query.lang || "en";
+    const format = req.query.format || "excel";
+    
+    console.log("downloadSyncReport called for user:", req.user.id);
+    
+    // Perform the sync operation
+    const result = await customerService.syncWithWhatsApp(req.user.id);
+    
+    if (format === "csv") {
+      // Set headers for CSV download
+      res.setHeader(
+        "Content-Disposition",
+        'attachment; filename="whatsapp_sync_report.csv"'
+      );
+      res.setHeader("Content-Type", "text/csv");
+      
+      // Convert Excel buffer to CSV (simplified - in real implementation, you'd use a proper CSV converter)
+      const csvContent = "Phone Number,Name,Status\n";
+      res.send(csvContent + "CSV format not fully implemented - use Excel format");
+    } else {
+      // Set headers for Excel download
+      res.setHeader(
+        "Content-Disposition",
+        'attachment; filename="whatsapp_sync_report.xlsx"'
+      );
+      res.setHeader(
+        "Content-Type",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      );
+      
+      // Send the Excel report buffer
+      res.send(result.reportBuffer);
+    }
+  } catch (error) {
+    console.error("Error downloading sync report:", error);
     res.status(500).json({ error: error.message });
   }
 };

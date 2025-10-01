@@ -36,6 +36,28 @@ exports.createTemplate = async (req, res) => {
   }
 };
 
+exports.getTemplates = async (req, res) => {
+  try {
+    console.log("getTemplates called");
+    const { page = 0, limit = 10, search } = req.query;
+    const businessId = req.user.business_id;
+
+    const result = await messageTemplateService.getTemplates(
+      Number(page),
+      Number(limit),
+      businessId,
+      search
+    );
+
+    // ⬇️ include global placeholders for UI to display
+    const placeholders = await messageTemplateService.getGlobalPlaceholders();
+    res.json({ ...result, placeholders });
+  } catch (error) {
+    console.error("Error in getTemplates:", error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
 exports.getAllTemplates = async (req, res) => {
   try {
     const { page = 0, limit = 10, search } = req.query;

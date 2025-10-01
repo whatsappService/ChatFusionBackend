@@ -26,6 +26,42 @@
     return await MessageTemplate.create(clean);
   };
 
+  exports.getTemplates = async (
+    page = 0,
+    limit = 10,
+    businessId,
+    search = ""
+  ) => {
+    const offset = page * limit;
+
+    const whereCondition = {
+      [Op.or]: [{ business_id: null }, { business_id: businessId }],
+    };
+
+    if (search) {
+      whereCondition[Op.and] = [
+        {
+          [Op.or]: [
+            { template_name_en: { [Op.like]: `%${search}%` } },
+            { template_name_ar: { [Op.like]: `%${search}%` } },
+            { message_en: { [Op.like]: `%${search}%` } },
+            { message_ar: { [Op.like]: `%${search}%` } },
+          ],
+        },
+      ];
+    }
+
+    const { rows: templates, count } = await MessageTemplate.findAndCountAll({
+      attributes: TEMPLATE_FIELDS,
+      where: whereCondition,
+      offset,
+      limit,
+      order: [["updatedAt", "DESC"]],
+    });
+
+    return { templates, total: count, page, limit };
+  };
+
   exports.getAllTemplates = async (
     page = 0,
     limit = 10,

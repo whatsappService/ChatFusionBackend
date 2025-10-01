@@ -42,7 +42,7 @@ router.post(
   "/send-single",
   authenticateUser,
   requireFeature("single_messages"),
-  requirePermission("messages.send"),
+  requirePermission("messages.send.single"),
   upload.any(),
   requireMediaIfFiles,
   messageController.sendSingleMessage
@@ -53,7 +53,7 @@ router.post(
   "/sendSingleMessage",
   authenticateUser,
   requireFeature("single_messages"),
-  requirePermission("messages.send"),
+  requirePermission("messages.send.single"),
   upload.any(),
   requireMediaIfFiles,
   messageController.sendSingleMessage
@@ -64,13 +64,24 @@ router.post(
   "/sendBulk",
   authenticateUser,
   requireFeature("bulk_send"),
-  requirePermission("messages.bulk"),
+  requirePermission("messages.send.bulk"),
   upload.fields([
     { name: "globalFiles", maxCount: 10 },
     { name: "personalFiles", maxCount: 50 },
   ]),
   requireMediaIfFiles,
   messageController.sendBulkMessage
+);
+
+// Group send
+router.post(
+  "/sendGroup",
+  authenticateUser,
+  requireFeature("group_messages"),
+  requirePermission("messages.send.group"),
+  upload.any(),
+  requireMediaIfFiles,
+  messageController.sendGroupMessage
 );
 
 module.exports = router;

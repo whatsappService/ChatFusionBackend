@@ -22,9 +22,9 @@ const PERMISSIONS_BY_FEATURE = {
   ],
 
   // Message System
-  single_messages: ["messages.read", "messages.send"],
-  bulk_send: ["messages.read", "messages.send", "messages.bulk"],
-  group_messages: ["messages.read", "messages.send", "messages.group"],
+  single_messages: ["messages.send.single", "messages.single.view"],
+  bulk_send: ["messages.send.bulk", "messages.bulk.view"],
+  group_messages: ["messages.groups.view"],
   scheduled_messages: [
     "schedules.read",
     "schedules.create",
@@ -112,10 +112,11 @@ const CANONICAL_PERMS = [
   "categories.delete",
 
   // Message System
-  "messages.read",
-  "messages.send",
-  "messages.bulk",
-  "messages.group",
+  "messages.send.single",
+  "messages.send.bulk",
+  "messages.single.view",
+  "messages.bulk.view",
+  "messages.groups.view",
   "schedules.read",
   "schedules.create",
   "schedules.update",

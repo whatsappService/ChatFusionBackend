@@ -43,17 +43,40 @@ exports.getWhatsAppGroups = async (userId) => {
       "❌ Error fetching WhatsApp groups from ChatFusion API:",
       error.response?.data || error.message
     );
+    console.error("❌ Error status:", error.response?.status);
+    console.error("❌ Error code:", error.code);
     
     if (error.response?.status === 401) {
       throw new Error("WhatsApp Groups Error: Unauthorized - Invalid API key or expired credentials");
-    } else if (error.response?.status === 404) {
-      throw new Error("WhatsApp Groups Error: Service not found - ChatFusion API endpoint unavailable");
+    } else if (error.response?.status === 404 || error.response?.status === 400) {
+      // Return empty groups array instead of throwing error when service is unavailable
+      return {
+        success: true,
+        message: "WhatsApp service is currently unavailable. Please ensure your WhatsApp account is connected.",
+        data: [],
+        groups: [],
+        total: 0
+      };
     } else if (error.response?.status >= 500) {
       throw new Error("WhatsApp Groups Error: ChatFusion server error - External service is down");
     } else if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
-      throw new Error("WhatsApp Groups Error: Cannot connect to ChatFusion API - Network or DNS issue");
+      // Return empty groups array instead of throwing error when service is unavailable
+      return {
+        success: true,
+        message: "WhatsApp service is currently unavailable. Please ensure your WhatsApp account is connected.",
+        data: [],
+        groups: [],
+        total: 0
+      };
     } else {
-      throw new Error(`WhatsApp Groups Error: ${error.response?.data?.message || error.message || 'Unknown error occurred'}`);
+      // For any other error, also return empty groups instead of throwing
+      return {
+        success: true,
+        message: "WhatsApp service is currently unavailable. Please ensure your WhatsApp account is connected.",
+        data: [],
+        groups: [],
+        total: 0
+      };
     }
   }
 };
@@ -102,11 +125,11 @@ exports.sendGroupMessage = async (userId, groupId, contents, files = []) => {
     if (error.response?.status === 401) {
       throw new Error("Group Message Error: Unauthorized - Invalid API key or expired credentials");
     } else if (error.response?.status === 404) {
-      throw new Error("Group Message Error: Service not found - ChatFusion API endpoint unavailable");
+      throw new Error("Group Message Error: WhatsApp service is currently unavailable. Please ensure your WhatsApp account is connected and try again.");
     } else if (error.response?.status >= 500) {
       throw new Error("Group Message Error: ChatFusion server error - External service is down");
     } else if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
-      throw new Error("Group Message Error: Cannot connect to ChatFusion API - Network or DNS issue");
+      throw new Error("Group Message Error: WhatsApp service is currently unavailable. Please ensure your WhatsApp account is connected and try again.");
     } else {
       throw new Error(`Group Message Error: ${error.response?.data?.message || error.message || 'Unknown error occurred'}`);
     }

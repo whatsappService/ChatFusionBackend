@@ -29,7 +29,7 @@ const upload = multer({
 const mustManageGroups = [
   authMiddleware,
   requireFeature("group_messages"),
-  requirePermission("messages.group"),
+  requirePermission("messages.send.group"),
 ];
 
 // Require media feature if attachments present
@@ -50,7 +50,7 @@ router.get(
   "/get-groups",
   authMiddleware,
   requireFeature("group_messages"),
-  requirePermission("messages.group"),
+  requirePermission("messages.send.group"),
   groupController.getGroups
 );
 

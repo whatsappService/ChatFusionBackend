@@ -36,6 +36,60 @@ exports.getCategoriesByUserId = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
+
+/**
+ * Get categories with search and pagination
+ * Query parameters: page, limit, search, sortBy, sortOrder
+ */
+exports.getCategoriesWithPagination = async (req, res) => {
+  try {
+    console.log("🔍 getCategoriesWithPagination called with params:", req.query);
+    console.log("👤 User ID:", req.user?.id);
+    
+    const {
+      page = 0,
+      limit = 10,
+      search = "",
+      sortBy = "name",
+      sortOrder = "asc"
+    } = req.query;
+
+    // Validate and sanitize parameters
+    const pageNum = Math.max(0, parseInt(page) || 0);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit) || 10));
+    const searchTerm = String(search || "").trim();
+    const sortField = ['name', 'createdAt', 'updatedAt'].includes(sortBy) ? sortBy : 'name';
+    const sortDirection = ['asc', 'desc'].includes(sortOrder.toLowerCase()) ? sortOrder.toLowerCase() : 'asc';
+
+    console.log("📊 Processed params:", { pageNum, limitNum, searchTerm, sortField, sortDirection });
+
+    const result = await customerCategoryService.getCategoriesWithPagination(
+      req.user.id,
+      {
+        page: pageNum,
+        limit: limitNum,
+        search: searchTerm,
+        sortBy: sortField,
+        sortOrder: sortDirection
+      }
+    );
+
+    console.log("✅ Result:", result);
+
+    res.json({
+      success: true,
+      data: result.categories,
+      pagination: result.pagination,
+      search: result.search
+    });
+  } catch (error) {
+    console.error("❌ Error fetching categories:", error);
+    res.status(500).json({ 
+      success: false,
+      error: error.message 
+    });
+  }
+};
 exports.getCategoryById = async (req, res) => {
   try {
     const category = await customerCategoryService.getCategoryById(

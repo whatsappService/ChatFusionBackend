@@ -280,7 +280,15 @@ exports.syncWithWhatsApp = async (userId) => {
       error.response?.data || error.message
     );
     
-    if (error.response?.status === 401) {
+    if (error.response?.status === 400) {
+      // Handle specific 400 errors from WhatsApp service
+      const errorData = error.response?.data;
+      if (errorData?.message === 'Unable to retrieve WhatsApp contacts' || errorData?.error === 'No contacts available') {
+        throw new Error("WhatsApp Contacts Error: No contacts available. Please ensure your WhatsApp account is connected and has contacts.");
+      } else {
+        throw new Error(`WhatsApp Contacts Error: ${errorData?.message || 'Bad request - Please check your WhatsApp connection'}`);
+      }
+    } else if (error.response?.status === 401) {
       throw new Error("WhatsApp Contacts Error: Unauthorized - Invalid API key or expired credentials");
     } else if (error.response?.status === 404) {
       throw new Error("WhatsApp Contacts Error: Service not found - ChatFusion API endpoint unavailable");
@@ -293,67 +301,85 @@ exports.syncWithWhatsApp = async (userId) => {
     }
   }
 
-  // Ensure contacts is an array
+  // Ensure contacts is an array and extract from nested structure
   let contacts = [];
+  console.log("ChatFusion API Response:", JSON.stringify(response.data, null, 2));
+  
   if (Array.isArray(response.data)) {
     contacts = response.data;
   } else if (response.data && Array.isArray(response.data.contacts)) {
     contacts = response.data.contacts;
+  } else if (response.data && response.data.data && Array.isArray(response.data.data.contacts)) {
+    contacts = response.data.data.contacts;
+  } else if (response.data && response.data.success && response.data.data && Array.isArray(response.data.data.contacts)) {
+    contacts = response.data.data.contacts;
   } else {
-    throw new Error("contacts is not iterable");
+    console.error("Unexpected ChatFusion API response format:", response.data);
+    throw new Error(`contacts is not iterable. Received: ${JSON.stringify(response.data)}`);
   }
 
-  let total = contacts.length;
+  // Filter contacts based on criteria: isUser=true, isMe=false, isWAContact=true, isBlocked=false
+  const filteredContacts = contacts.filter(contact => {
+    return contact.isUser === true && 
+           contact.isMe === false && 
+           contact.isWAContact === true && 
+           contact.isBlocked === false;
+  });
+
+  let total = filteredContacts.length;
   let added = 0;
   let skipped = 0;
   let errors = 0;
 
-  // Prepare report rows with a header row.
-  const reportRows = [["Phone Number", "Name", "Status"]];
+  // Prepare simplified report rows with just phone and name
+  const reportRows = [["Phone Number", "Name", "Verified Name"]];
 
-  for (const contact of contacts) {
+  for (const contact of filteredContacts) {
     try {
+      // Extract phone number and names from the contact object
       const phoneStr = contact.number ? String(contact.number) : "";
+      const contactName = contact.name || contact.pushname || "";
+      const verifiedName = contact.verifiedName || "";
+      
+      console.log("Processing contact:", { phoneStr, contactName, verifiedName });
+      
       if (!phoneStr) {
         skipped++;
-        reportRows.push([null, null, "missingPhone"]);
+        reportRows.push([null, contactName, verifiedName]);
         continue;
       }
+      
       // Check if customer already exists
       const existing = await Customer.findOne({
         where: { whatsapp_number: phoneStr },
       });
       if (existing) {
         skipped++;
-        reportRows.push([
-          phoneStr,
-          contact.pushname || contact.name,
-          "alreadyExists",
-        ]);
+        reportRows.push([phoneStr, contactName, verifiedName]);
         continue;
       }
+      
+      // Use verifiedName if available, otherwise fall back to contactName
+      const finalName = verifiedName || contactName || "";
+      
       const newCustomerData = {
         user_id: userId,
         whatsapp_number: phoneStr,
-        profile_name: contact.pushname || contact.name,
+        profile_name: finalName,
         gender: "not_set",
         category_id: DEFAULT_CATEGORY_ID,
         status: "verified",
       };
+      
       await Customer.create(newCustomerData);
       added++;
-      reportRows.push([
-        phoneStr,
-        contact.pushname || contact.name,
-        "addedSuccessfully",
-      ]);
+      reportRows.push([phoneStr, finalName, verifiedName]);
     } catch (error) {
       errors++;
-      reportRows.push([
-        contact.number,
-        contact.pushname || contact.name,
-        "error: " + error.message,
-      ]);
+      const phoneStr = contact.number || "unknown";
+      const contactName = contact.name || contact.pushname || "unknown";
+      const verifiedName = contact.verifiedName || "";
+      reportRows.push([phoneStr, contactName, verifiedName]);
       console.error("Error processing contact:", error.message);
     }
   }

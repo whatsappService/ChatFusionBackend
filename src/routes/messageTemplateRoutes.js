@@ -6,6 +6,13 @@ const authMiddleware = require("../middleware/authMiddleware");
 const requirePermission = require("../middleware/requirePermission");
 
 router.get(
+  "/templates-list",
+  authMiddleware,
+  requirePermission("templates.read"),
+  messageTemplateController.getTemplates
+);
+
+router.get(
   "/categories",
   authMiddleware,
   requirePermission("templates.read"),

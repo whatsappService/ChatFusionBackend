@@ -305,9 +305,9 @@ exports.sendBulkMessage = async (
       .map((r) => String(r.recipient || "").replace(/\D/g, ""))
       .filter((p) => /^\d+$/.test(p));
 
-    // Optional env flag to disable bulk entirely (useful while diagnosing)
-    const useBulk =
-      (process.env.CHATFUSION_USE_BULK || "true").toLowerCase() !== "false";
+    // DISABLED FOR TESTING - Force individual message sending
+    const useBulk = false;
+    console.log("[send-bulk] Bulk messaging DISABLED for testing - using individual sends");
 
     if (useBulk) {
       const bulk = await doSendBulk(biz.api_key, phones, replaced, globalFiles);
@@ -414,4 +414,61 @@ exports.sendManySameMessage = async (
 ) => {
   const data = recipients.map((r) => ({ recipient: r }));
   return exports.sendBulkMessage(businessId, messages, data, files);
+};
+
+/**
+ * Send message to a WhatsApp group
+ */
+exports.sendGroupMessage = async (businessId, groupId, contents, files = [], options = {}) => {
+  const business = await Business.findByPk(businessId);
+  if (!business || !business.api_key) {
+    throw new Error("API key not found for this business.");
+  }
+
+  const form = new FormData();
+  form.append("groupId", groupId);
+  
+  if (Array.isArray(contents)) {
+    contents.forEach((content, index) => {
+      form.append(`contents[${index}]`, content);
+    });
+  } else {
+    form.append("contents[0]", contents);
+  }
+
+  // Add files if any
+  if (Array.isArray(files) && files.length > 0) {
+    files.forEach((file, index) => {
+      form.append("files", file.buffer, { filename: file.originalname });
+    });
+  }
+
+  try {
+    const CHATFUSION_BASE_URL = process.env.CHATFUSION_BASE_URL || "https://chatfusion.murraltd.com/api";
+    const CHATFUSION_SEND_GROUP_URL = process.env.CHATFUSION_SEND_GROUP_URL || `${CHATFUSION_BASE_URL}/messaging/sendGroup`;
+    
+    const response = await axios.post(CHATFUSION_SEND_GROUP_URL, form, {
+      headers: { "x-api-key": business.api_key, ...form.getHeaders() },
+    });
+
+    return {
+      success: true,
+      message: "Group message sent successfully",
+      data: response.data
+    };
+  } catch (error) {
+    console.error("❌ Error sending group message:", error.response?.data || error.message);
+    
+    if (error.response?.status === 401) {
+      throw new Error("Group Message Error: Unauthorized - Invalid API key or expired credentials");
+    } else if (error.response?.status === 404) {
+      throw new Error("Group Message Error: Service not found - ChatFusion API endpoint unavailable");
+    } else if (error.response?.status >= 500) {
+      throw new Error("Group Message Error: ChatFusion server error - External service is down");
+    } else if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
+      throw new Error("Group Message Error: Cannot connect to ChatFusion API - Network or DNS issue");
+    } else {
+      throw new Error(`Group Message Error: ${error.response?.data?.message || error.message || 'Unknown error occurred'}`);
+    }
+  }
 };

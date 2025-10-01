@@ -223,3 +223,52 @@ exports.sendBulkMessage = async (req, res) => {
       .json({ success: false, message: err.message || "Server error" });
   }
 };
+
+/** POST /api/messages/sendGroup — send message to WhatsApp group */
+exports.sendGroupMessage = async (req, res) => {
+  try {
+    const bizId = req.user?.business_id;
+    if (!bizId)
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+
+    let { groupId, contents } = req.body || {};
+    if (!groupId)
+      return res
+        .status(400)
+        .json({ success: false, message: "Group ID is required" });
+    if (!contents)
+      return res
+        .status(400)
+        .json({ success: false, message: "Message content is required" });
+
+    contents = Array.isArray(contents) ? contents : [contents];
+    const files = req.files || [];
+
+    const user = await User.findByPk(req.user.id);
+    if (!user)
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+
+    const result = await messageService.sendGroupMessage(
+      bizId,
+      groupId,
+      contents,
+      files,
+      { user }
+    );
+
+    if (result && result.success === false) {
+      return res.status(result.status || 400).json(result);
+    }
+    return res.json({ success: true, ...result });
+  } catch (err) {
+    if (err.status) {
+      return res
+        .status(err.status)
+        .json({ success: false, message: err.message, data: err.data });
+    }
+    console.error("sendGroupMessage error:", err);
+    return res
+      .status(500)
+      .json({ success: false, message: err.message || "Server error" });
+  }
+};

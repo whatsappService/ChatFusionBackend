@@ -11,8 +11,6 @@ const permissionMatrix = {
     "templates.read",
     "templates.write",
     "reports.view",
-    "messages.read",
-    "messages.send",
     "bulk.read",
     "bulk.send",
     "schedules.read",
@@ -36,7 +34,7 @@ const permissionMatrix = {
   ],
   analyst: ["analytics.view", "reports.export"],
   "whatsapp-admin": ["whatsapp.manage"],
-  member: ["customers.read", "templates.read", "messages.single"],
+  member: ["customers.read", "templates.read", "messages.send.single"],
 };
 
 /** Wildcard matcher: supports "*", "x.*" */

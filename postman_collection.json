@@ -1,0 +1,1011 @@
+{
+	"info": {
+		"_postman_id": "chatfusion-backend-api",
+		"name": "ChatFusion Backend API - Complete",
+		"description": "Complete API collection for ChatFusion WhatsApp Backend Service with all Messaging & Usage endpoints",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "chatfusion"
+	},
+	"auth": {
+		"type": "bearer",
+		"bearer": [
+			{
+				"key": "token",
+				"value": "{{jwt_token}}",
+				"type": "string"
+			}
+		]
+	},
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:5550",
+			"type": "string"
+		},
+		{
+			"key": "jwt_token",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "api_key",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "refresh_token",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "business_id",
+			"value": "1",
+			"type": "string"
+		},
+		{
+			"key": "user_id",
+			"value": "1",
+			"type": "string"
+		}
+	],
+	"item": [
+		{
+			"name": "Authentication",
+			"item": [
+				{
+					"name": "Login",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    const response = pm.response.json();",
+									"    pm.collectionVariables.set('jwt_token', response.accessToken);",
+									"    pm.collectionVariables.set('refresh_token', response.refreshToken);",
+									"    console.log('JWT Token saved:', response.accessToken);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email_address\": \"superadmin@superadmin.com\",\n  \"password\": \"password\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/auth/login",
+							"host": ["{{base_url}}"],
+							"path": ["api", "auth", "login"]
+						},
+						"description": "Login with email_address and password to get JWT tokens"
+					},
+					"response": []
+				},
+				{
+					"name": "Register",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email_address\": \"user@example.com\",\n  \"password\": \"password123\",\n  \"full_name\": \"John Doe\",\n  \"business_name\": \"My Business\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/auth/register",
+							"host": ["{{base_url}}"],
+							"path": ["api", "auth", "register"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Refresh Token",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    const response = pm.response.json();",
+									"    pm.collectionVariables.set('jwt_token', response.accessToken);",
+									"    console.log('JWT Token refreshed:', response.accessToken);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"refreshToken\": \"{{refresh_token}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/auth/refresh",
+							"host": ["{{base_url}}"],
+							"path": ["api", "auth", "refresh"]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Messaging APIs (x-api-key)",
+			"description": "All messaging endpoints using x-api-key authentication",
+			"item": [
+				{
+					"name": "Send Single Message",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-api-key",
+								"value": "{{api_key}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"phone\": \"972568085611\",\n  \"message\": \"Hello from WhatsApp API!\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/messages/send",
+							"host": ["{{base_url}}"],
+							"path": ["api", "messages", "send"]
+						},
+						"description": "Send a text message to a single phone number"
+					},
+					"response": []
+				},
+				{
+					"name": "Send Media Message",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-api-key",
+								"value": "{{api_key}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "phone",
+									"value": "972568085611",
+									"type": "text"
+								},
+								{
+									"key": "message",
+									"value": "Check this image!",
+									"type": "text"
+								},
+								{
+									"key": "media",
+									"type": "file",
+									"src": "/path/to/image.jpg"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/api/messages/send-media",
+							"host": ["{{base_url}}"],
+							"path": ["api", "messages", "send-media"]
+						},
+						"description": "Send a message with an image, video, document, or audio file"
+					},
+					"response": []
+				},
+				{
+					"name": "Send Bulk Messages (JSON)",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-api-key",
+								"value": "{{api_key}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"phones\": [\n    \"972568085611\",\n    \"972595085600\",\n    \"972501234567\"\n  ],\n  \"message\": \"Hello everyone! This is a bulk message.\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/messages/bulk",
+							"host": ["{{base_url}}"],
+							"path": ["api", "messages", "bulk"]
+						},
+						"description": "Send the same message to multiple phone numbers"
+					},
+					"response": []
+				},
+				{
+					"name": "Send Bulk Messages (with Media)",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-api-key",
+								"value": "{{api_key}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "phones",
+									"value": "[\"972568085611\", \"972595085600\"]",
+									"type": "text"
+								},
+								{
+									"key": "message",
+									"value": "Check this file!",
+									"type": "text"
+								},
+								{
+									"key": "media",
+									"type": "file",
+									"src": "/path/to/document.pdf"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/api/messages/bulk",
+							"host": ["{{base_url}}"],
+							"path": ["api", "messages", "bulk"]
+						},
+						"description": "Send bulk messages with a media attachment"
+					},
+					"response": []
+				},
+				{
+					"name": "Send Group Message (Text)",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-api-key",
+								"value": "{{api_key}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"groupId\": \"123456789-1234567890@g.us\",\n  \"message\": \"Hello group members!\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/messages/group",
+							"host": ["{{base_url}}"],
+							"path": ["api", "messages", "group"]
+						},
+						"description": "Send a message to a WhatsApp group"
+					},
+					"response": []
+				},
+				{
+					"name": "Send Multiple Group Messages",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-api-key",
+								"value": "{{api_key}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "groupId",
+									"value": "123456789-1234567890@g.us",
+									"type": "text"
+								},
+								{
+									"key": "messages",
+									"value": "[\"Message 1\", \"Message 2\", \"Message 3\"]",
+									"type": "text"
+								},
+								{
+									"key": "attachments",
+									"type": "file",
+									"src": "/path/to/file1.pdf"
+								},
+								{
+									"key": "attachments",
+									"type": "file",
+									"src": "/path/to/file2.jpg"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/api/messages/group",
+							"host": ["{{base_url}}"],
+							"path": ["api", "messages", "group"]
+						},
+						"description": "Send multiple messages and attachments to a group in one request"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Message History APIs (x-api-key)",
+			"description": "Message history and tracking endpoints",
+			"item": [
+				{
+					"name": "Get All Messages",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-api-key",
+								"value": "{{api_key}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/messages?page=1&limit=50",
+							"host": ["{{base_url}}"],
+							"path": ["api", "messages"],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "50"
+								}
+							]
+						},
+						"description": "Retrieve message history with pagination"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Messages by Status",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-api-key",
+								"value": "{{api_key}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/messages/status/sent",
+							"host": ["{{base_url}}"],
+							"path": ["api", "messages", "status", "sent"]
+						},
+						"description": "Quick filter for messages by status (sent, delivered, failed, pending)"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Failed Messages",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-api-key",
+								"value": "{{api_key}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/messages/failed?page=1&limit=50",
+							"host": ["{{base_url}}"],
+							"path": ["api", "messages", "failed"],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "50"
+								}
+							]
+						},
+						"description": "Retrieve all failed messages with error details"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Messages with Filters",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-api-key",
+								"value": "{{api_key}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/messages?status=sent&phone=972568085611&startDate=2024-01-01&endDate=2024-01-31&page=1&limit=20",
+							"host": ["{{base_url}}"],
+							"path": ["api", "messages"],
+							"query": [
+								{
+									"key": "status",
+									"value": "sent"
+								},
+								{
+									"key": "phone",
+									"value": "972568085611"
+								},
+								{
+									"key": "startDate",
+									"value": "2024-01-01"
+								},
+								{
+									"key": "endDate",
+									"value": "2024-01-31"
+								},
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "20"
+								}
+							]
+						},
+						"description": "Get messages with filters for status, phone, and date range"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Usage Tracking APIs (x-api-key)",
+			"description": "Usage statistics and limits management",
+			"item": [
+				{
+					"name": "Get Usage Statistics",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-api-key",
+								"value": "{{api_key}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/usage",
+							"host": ["{{base_url}}"],
+							"path": ["api", "usage"]
+						},
+						"description": "Get message usage statistics for the authenticated user"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Usage Today",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-api-key",
+								"value": "{{api_key}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/usage?period=today",
+							"host": ["{{base_url}}"],
+							"path": ["api", "usage"],
+							"query": [
+								{
+									"key": "period",
+									"value": "today"
+								}
+							]
+						},
+						"description": "Get today's usage statistics"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Usage for Date Range",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-api-key",
+								"value": "{{api_key}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/usage?startDate=2024-01-01&endDate=2024-01-31",
+							"host": ["{{base_url}}"],
+							"path": ["api", "usage"],
+							"query": [
+								{
+									"key": "startDate",
+									"value": "2024-01-01"
+								},
+								{
+									"key": "endDate",
+									"value": "2024-01-31"
+								}
+							]
+						},
+						"description": "Get usage for a specific date range"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Usage Limits (Admin)",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-api-key",
+								"value": "{{api_key}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/usage/limits/{{user_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["api", "usage", "limits", "{{user_id}}"]
+						},
+						"description": "Get usage limits for a specific user (superadmin/provider only)"
+					},
+					"response": []
+				},
+				{
+					"name": "Set Usage Limits (Admin)",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-api-key",
+								"value": "{{api_key}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"daily_limit\": 1000,\n  \"monthly_limit\": 30000\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/usage/limits/{{user_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["api", "usage", "limits", "{{user_id}}"]
+						},
+						"description": "Set usage limits for a user (superadmin/provider only)"
+					},
+					"response": []
+				},
+				{
+					"name": "Update Usage Limits (Admin)",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "PUT",
+						"header": [
+							{
+								"key": "x-api-key",
+								"value": "{{api_key}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"daily_limit\": 1500,\n  \"monthly_limit\": 45000\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/usage/limits/{{user_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["api", "usage", "limits", "{{user_id}}"]
+						},
+						"description": "Update existing usage limits for a user"
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Usage Limits (Admin)",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "x-api-key",
+								"value": "{{api_key}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/usage/limits/{{user_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["api", "usage", "limits", "{{user_id}}"]
+						},
+						"description": "Remove usage limits for a user (unlimited access)"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "WhatsApp Connection (JWT)",
+			"description": "WhatsApp connection and status endpoints using JWT authentication",
+			"item": [
+				{
+					"name": "Get WhatsApp Status",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/whatsapp/status",
+							"host": ["{{base_url}}"],
+							"path": ["api", "whatsapp", "status"]
+						},
+						"description": "Check WhatsApp connection status"
+					},
+					"response": []
+				},
+				{
+					"name": "Connect to WhatsApp",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/whatsapp/connect",
+							"host": ["{{base_url}}"],
+							"path": ["api", "whatsapp", "connect"]
+						},
+						"description": "Initiate WhatsApp connection"
+					},
+					"response": []
+				},
+				{
+					"name": "Update Business API Key",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    const response = pm.response.json();",
+									"    if (response.api_key) {",
+									"        pm.collectionVariables.set('api_key', response.api_key);",
+									"        console.log('API Key saved:', response.api_key);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"apiKey\": \"your_chatfusion_api_key_here\",\n  \"password\": \"password\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/whatsapp/update-api-key",
+							"host": ["{{base_url}}"],
+							"path": ["api", "whatsapp", "update-api-key"]
+						},
+						"description": "Update business API key (requires your account password for security verification)"
+					},
+					"response": []
+				},
+				{
+					"name": "Disconnect WhatsApp",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/whatsapp/disconnect",
+							"host": ["{{base_url}}"],
+							"path": ["api", "whatsapp", "disconnect"]
+						},
+						"description": "Disconnect from WhatsApp"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Customers (JWT)",
+			"description": "Customer management endpoints using JWT authentication",
+			"item": [
+				{
+					"name": "Get All Customers",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/customers",
+							"host": ["{{base_url}}"],
+							"path": ["api", "customers"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Create Customer",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"full_name\": \"John Doe\",\n  \"whatsapp_number\": \"972568085611\",\n  \"email\": \"john@example.com\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/customers",
+							"host": ["{{base_url}}"],
+							"path": ["api", "customers"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update Customer",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"full_name\": \"John Doe Updated\",\n  \"email\": \"john.updated@example.com\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/customers/1",
+							"host": ["{{base_url}}"],
+							"path": ["api", "customers", "1"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Customer",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/customers/1",
+							"host": ["{{base_url}}"],
+							"path": ["api", "customers", "1"]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Scheduled Messages (JWT)",
+			"description": "Message scheduling endpoints using JWT authentication",
+			"item": [
+				{
+					"name": "Get All Schedules",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/schedules",
+							"host": ["{{base_url}}"],
+							"path": ["api", "schedules"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Create Schedule",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"type\": \"ONE_OFF\",\n  \"send_at_utc\": \"2024-12-31T10:00:00Z\",\n  \"to_number\": \"972568085611\",\n  \"body\": \"Happy New Year!\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/schedules",
+							"host": ["{{base_url}}"],
+							"path": ["api", "schedules"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update Schedule",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"status\": \"PAUSED\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/schedules/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "schedules", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": "schedule-uuid"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Schedule",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/schedules/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "schedules", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": "schedule-uuid"
+								}
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		}
+	]
+}

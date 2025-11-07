@@ -13,6 +13,7 @@ const BusinessCategory = require("./businessCategory");
 const Customer = require("./customer");
 const CustomerCategory = require("./customerCategory");
 const MessageTemplate = require("./messageTemplate");
+const Message = require("./message");
 const Report = require("./report");
 
 // Feature flags
@@ -271,6 +272,34 @@ ScheduledMessageItem.associate({
 });
 
 /* =========================
+ * Messages
+ * =======================*/
+Message.belongsTo(Business, {
+  foreignKey: "business_id",
+  as: "business",
+  onDelete: "CASCADE",
+  onUpdate: "CASCADE",
+});
+Message.belongsTo(User, {
+  foreignKey: "user_id",
+  as: "user",
+  onDelete: "SET NULL",
+  onUpdate: "CASCADE",
+});
+Business.hasMany(Message, {
+  foreignKey: "business_id",
+  as: "messages",
+  onDelete: "CASCADE",
+  onUpdate: "CASCADE",
+});
+User.hasMany(Message, {
+  foreignKey: "user_id",
+  as: "messages",
+  onDelete: "SET NULL",
+  onUpdate: "CASCADE",
+});
+
+/* =========================
  * Customers & Templates
  * =======================*/
 CustomerCategory.belongsTo(User, {
@@ -368,6 +397,7 @@ module.exports = {
   Customer,
   CustomerCategory,
   MessageTemplate,
+  Message,
   Report,
 
   // Feature flags

@@ -5,6 +5,7 @@ const multer = require("multer");
 
 const messageController = require("../controllers/messageController");
 const authenticateUser = require("../middleware/authMiddleware");
+const apiKeyAuth = require("../middleware/apiKeyAuth");
 const requireFeature = require("../middleware/requireFeature");
 const requirePermission = require("../middleware/requirePermission");
 
@@ -36,6 +37,78 @@ const requireMediaIfFiles = (req, res, next) => {
   if (!anyFiles) return next();
   return requireFeature("media_attachments")(req, res, next);
 };
+
+// ============================================================================
+// NEW API ENDPOINTS (Using x-api-key authentication)
+// ============================================================================
+
+// POST /api/messages/send - Send single text message
+router.post(
+  "/send",
+  apiKeyAuth,
+  requireFeature("single_messages"),
+  requirePermission("messages.send.single"),
+  messageController.apiSendMessage
+);
+
+// POST /api/messages/send-media - Send media message
+router.post(
+  "/send-media",
+  apiKeyAuth,
+  requireFeature("single_messages"),
+  requireFeature("media_attachments"),
+  requirePermission("messages.send.single"),
+  upload.single("media"),
+  messageController.apiSendMediaMessage
+);
+
+// POST /api/messages/bulk - Send bulk messages
+router.post(
+  "/bulk",
+  apiKeyAuth,
+  requireFeature("bulk_send"),
+  requirePermission("messages.send.bulk"),
+  upload.single("media"),
+  messageController.apiSendBulkMessages
+);
+
+// POST /api/messages/group - Send group message(s)
+router.post(
+  "/group",
+  apiKeyAuth,
+  requireFeature("group_messages"),
+  requirePermission("messages.send.group"),
+  upload.array("attachments", 10),
+  messageController.apiSendGroupMessages
+);
+
+// GET /api/messages - Get message history
+router.get(
+  "/",
+  apiKeyAuth,
+  requirePermission("reports.view"),
+  messageController.apiGetMessages
+);
+
+// GET /api/messages/status/:status - Get messages by status
+router.get(
+  "/status/:status",
+  apiKeyAuth,
+  requirePermission("reports.view"),
+  messageController.apiGetMessagesByStatus
+);
+
+// GET /api/messages/failed - Get failed messages
+router.get(
+  "/failed",
+  apiKeyAuth,
+  requirePermission("reports.view"),
+  messageController.apiGetFailedMessages
+);
+
+// ============================================================================
+// EXISTING ENDPOINTS (Using JWT Bearer token authentication)
+// ============================================================================
 
 // Single send
 router.post(

@@ -28,17 +28,17 @@ function needsPerRecipient(text) {
 /** Low-level single-recipient send: recipient phone, array of messages, optional files[] */
 async function doSend(apiKey, phone, messages, files = []) {
   const form = new FormData();
-  form.append("recipient", phone);
+  form.append("phoneNumber", phone);
   (Array.isArray(messages) ? messages : [messages]).forEach((msg) =>
-    form.append("contents", msg)
+    form.append("message", msg)
   );
   (Array.isArray(files) ? files : []).forEach((file) =>
-    form.append("files", file.buffer, { filename: file.originalname })
+    form.append("file", file.buffer, { filename: file.originalname })
   );
 
   try {
     const CHATFUSION_BASE_URL = process.env.CHATFUSION_BASE_URL || "http://localhost:5500/api";
-    const CHATFUSION_SEND_MESSAGE_URL = process.env.CHATFUSION_MESSAGING_SEND_URL || `${CHATFUSION_BASE_URL}/messaging/send`;
+    const CHATFUSION_SEND_MESSAGE_URL = process.env.CHATFUSION_MESSAGING_SEND_URL || `${CHATFUSION_BASE_URL}/messages/send`;
     const resp = await axios.post(
       CHATFUSION_SEND_MESSAGE_URL,
       form,
@@ -128,7 +128,7 @@ async function doSendBulk(apiKey, recipients, messages, files = []) {
 
   try {
     const CHATFUSION_BASE_URL = process.env.CHATFUSION_BASE_URL || "http://localhost:5500/api";
-    const CHATFUSION_SEND_BULK_URL = process.env.CHATFUSION_MESSAGING_SEND_BULK_URL || `${CHATFUSION_BASE_URL}/messaging/sendBulk`;
+    const CHATFUSION_SEND_BULK_URL = process.env.CHATFUSION_MESSAGING_SEND_BULK_URL || `${CHATFUSION_BASE_URL}/messages/sendBulk`;
     const resp = await axios.post(
       CHATFUSION_SEND_BULK_URL,
       form,
@@ -444,8 +444,8 @@ exports.sendGroupMessage = async (businessId, groupId, contents, files = [], opt
   }
 
   try {
-    const CHATFUSION_BASE_URL = process.env.CHATFUSION_BASE_URL || "https://chatfusion.murraltd.com/api";
-    const CHATFUSION_SEND_GROUP_URL = process.env.CHATFUSION_SEND_GROUP_URL || `${CHATFUSION_BASE_URL}/messaging/sendGroup`;
+    const CHATFUSION_BASE_URL = process.env.CHATFUSION_BASE_URL || "https://be.muraasala.com";
+    const CHATFUSION_SEND_GROUP_URL = process.env.CHATFUSION_SEND_GROUP_URL || `${CHATFUSION_BASE_URL}/api/messages/sendGroup`;
     
     const response = await axios.post(CHATFUSION_SEND_GROUP_URL, form, {
       headers: { "x-api-key": business.api_key, ...form.getHeaders() },

@@ -113,7 +113,9 @@ exports.getWhatsAppStatus = async (req, res) => {
 // ✅ Connect to WhatsApp (Retrieve QR Code)
 exports.connectToWhatsApp = async (req, res) => {
   try {
-    const qrData = await whatsappService.connectToWhatsApp(req.user.id);
+    // Get account_id from query parameter or request body
+    const accountId = req.query.account_id || req.body.accountId || req.body.account_id || null;
+    const qrData = await whatsappService.connectToWhatsApp(req.user.id, accountId);
     res.json(qrData);
   } catch (error) {
     console.error("❌ WhatsApp Controller - Connect Error:", error);
@@ -124,6 +126,31 @@ exports.connectToWhatsApp = async (req, res) => {
     });
   }
 };
+
+// ✅ Get QR Code for WhatsApp connection
+exports.getQRCode = async (req, res) => {
+  try {
+    const accountId = req.query.account_id || req.params.accountId;
+    if (!accountId) {
+      return res.status(400).json({
+        error: "QR Code Controller Error",
+        message: "Account ID is required",
+        source: "WhatsApp Controller"
+      });
+    }
+
+    const qrData = await whatsappService.getQRCode(req.user.id, accountId);
+    res.json(qrData);
+  } catch (error) {
+    console.error("❌ WhatsApp Controller - QR Code Error:", error);
+    res.status(400).json({
+      error: "QR Code Controller Error",
+      message: error.message || "Failed to get QR code",
+      source: "WhatsApp Controller"
+    });
+  }
+};
+
 exports.checkWhatsAppNumber = async (req, res) => {
   try {
     const { phoneNumber } = req.body;

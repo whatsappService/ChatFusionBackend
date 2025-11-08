@@ -46,6 +46,11 @@
 			"key": "user_id",
 			"value": "1",
 			"type": "string"
+		},
+		{
+			"key": "account_id",
+			"value": "1",
+			"type": "string"
 		}
 	],
 	"item": [
@@ -162,8 +167,8 @@
 			]
 		},
 		{
-			"name": "Messaging APIs (x-api-key)",
-			"description": "All messaging endpoints using x-api-key authentication",
+			"name": "Messaging APIs (X-API-Key)",
+			"description": "All messaging endpoints using X-API-Key authentication",
 			"item": [
 				{
 					"name": "Send Single Message",
@@ -174,25 +179,39 @@
 						"method": "POST",
 						"header": [
 							{
-								"key": "x-api-key",
+								"key": "X-API-Key",
 								"value": "{{api_key}}",
 								"type": "text"
-							},
-							{
-								"key": "Content-Type",
-								"value": "application/json"
 							}
 						],
 						"body": {
-							"mode": "raw",
-							"raw": "{\n  \"phone\": \"972568085611\",\n  \"message\": \"Hello from WhatsApp API!\"\n}"
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "phone",
+									"value": "972568085611",
+									"type": "text"
+								},
+								{
+									"key": "message",
+									"value": "Hello from WhatsApp API!",
+									"type": "text"
+								}
+							]
 						},
 						"url": {
-							"raw": "{{base_url}}/api/messages/send",
+							"raw": "{{base_url}}/api/messages/send?account_id={{account_id}}",
 							"host": ["{{base_url}}"],
-							"path": ["api", "messages", "send"]
+							"path": ["api", "messages", "send"],
+							"query": [
+								{
+									"key": "account_id",
+									"value": "{{account_id}}",
+									"description": "Optional: Account ID to send from"
+								}
+							]
 						},
-						"description": "Send a text message to a single phone number"
+						"description": "Send a text message to a single phone number. Uses form-data per API documentation."
 					},
 					"response": []
 				},
@@ -205,7 +224,7 @@
 						"method": "POST",
 						"header": [
 							{
-								"key": "x-api-key",
+								"key": "X-API-Key",
 								"value": "{{api_key}}",
 								"type": "text"
 							}
@@ -231,16 +250,23 @@
 							]
 						},
 						"url": {
-							"raw": "{{base_url}}/api/messages/send-media",
+							"raw": "{{base_url}}/api/messages/send-media?account_id=1",
 							"host": ["{{base_url}}"],
-							"path": ["api", "messages", "send-media"]
+							"path": ["api", "messages", "send-media"],
+							"query": [
+								{
+									"key": "account_id",
+									"value": "{{account_id}}",
+									"description": "Optional: Account ID to send from"
+								}
+							]
 						},
 						"description": "Send a message with an image, video, document, or audio file"
 					},
 					"response": []
 				},
 				{
-					"name": "Send Bulk Messages (JSON)",
+					"name": "Send Bulk Messages",
 					"request": {
 						"auth": {
 							"type": "noauth"
@@ -248,25 +274,40 @@
 						"method": "POST",
 						"header": [
 							{
-								"key": "x-api-key",
+								"key": "X-API-Key",
 								"value": "{{api_key}}",
 								"type": "text"
-							},
-							{
-								"key": "Content-Type",
-								"value": "application/json"
 							}
 						],
 						"body": {
-							"mode": "raw",
-							"raw": "{\n  \"phones\": [\n    \"972568085611\",\n    \"972595085600\",\n    \"972501234567\"\n  ],\n  \"message\": \"Hello everyone! This is a bulk message.\"\n}"
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "phones",
+									"value": "[\"972568085611\", \"972595085600\", \"972501234567\"]",
+									"type": "text",
+									"description": "JSON array as string"
+								},
+								{
+									"key": "message",
+									"value": "Hello everyone! This is a bulk message.",
+									"type": "text"
+								}
+							]
 						},
 						"url": {
-							"raw": "{{base_url}}/api/messages/bulk",
+							"raw": "{{base_url}}/api/messages/bulk?account_id=1",
 							"host": ["{{base_url}}"],
-							"path": ["api", "messages", "bulk"]
+							"path": ["api", "messages", "bulk"],
+							"query": [
+								{
+									"key": "account_id",
+									"value": "{{account_id}}",
+									"description": "Optional: Account ID to send from"
+								}
+							]
 						},
-						"description": "Send the same message to multiple phone numbers"
+						"description": "Send the same message to multiple phone numbers. Uses form-data per API documentation."
 					},
 					"response": []
 				},
@@ -279,7 +320,7 @@
 						"method": "POST",
 						"header": [
 							{
-								"key": "x-api-key",
+								"key": "X-API-Key",
 								"value": "{{api_key}}",
 								"type": "text"
 							}
@@ -305,9 +346,16 @@
 							]
 						},
 						"url": {
-							"raw": "{{base_url}}/api/messages/bulk",
+							"raw": "{{base_url}}/api/messages/bulk?account_id=1",
 							"host": ["{{base_url}}"],
-							"path": ["api", "messages", "bulk"]
+							"path": ["api", "messages", "bulk"],
+							"query": [
+								{
+									"key": "account_id",
+									"value": "{{account_id}}",
+									"description": "Optional: Account ID to send from"
+								}
+							]
 						},
 						"description": "Send bulk messages with a media attachment"
 					},
@@ -322,25 +370,32 @@
 						"method": "POST",
 						"header": [
 							{
-								"key": "x-api-key",
+								"key": "X-API-Key",
 								"value": "{{api_key}}",
 								"type": "text"
-							},
-							{
-								"key": "Content-Type",
-								"value": "application/json"
 							}
 						],
 						"body": {
-							"mode": "raw",
-							"raw": "{\n  \"groupId\": \"123456789-1234567890@g.us\",\n  \"message\": \"Hello group members!\"\n}"
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "groupId",
+									"value": "123456789-1234567890@g.us",
+									"type": "text"
+								},
+								{
+									"key": "message",
+									"value": "Hello group members!",
+									"type": "text"
+								}
+							]
 						},
 						"url": {
 							"raw": "{{base_url}}/api/messages/group",
 							"host": ["{{base_url}}"],
 							"path": ["api", "messages", "group"]
 						},
-						"description": "Send a message to a WhatsApp group"
+						"description": "Send a message to a WhatsApp group. Uses form-data per API documentation."
 					},
 					"response": []
 				},
@@ -353,7 +408,7 @@
 						"method": "POST",
 						"header": [
 							{
-								"key": "x-api-key",
+								"key": "X-API-Key",
 								"value": "{{api_key}}",
 								"type": "text"
 							}
@@ -374,7 +429,8 @@
 								{
 									"key": "attachments",
 									"type": "file",
-									"src": "/path/to/file1.pdf"
+									"src": "/path/to/file1.pdf",
+									"description": "Multiple attachments supported"
 								},
 								{
 									"key": "attachments",
@@ -395,7 +451,7 @@
 			]
 		},
 		{
-			"name": "Message History APIs (x-api-key)",
+			"name": "Message History APIs (X-API-Key)",
 			"description": "Message history and tracking endpoints",
 			"item": [
 				{
@@ -407,7 +463,7 @@
 						"method": "GET",
 						"header": [
 							{
-								"key": "x-api-key",
+								"key": "X-API-Key",
 								"value": "{{api_key}}",
 								"type": "text"
 							}
@@ -440,7 +496,7 @@
 						"method": "GET",
 						"header": [
 							{
-								"key": "x-api-key",
+								"key": "X-API-Key",
 								"value": "{{api_key}}",
 								"type": "text"
 							}
@@ -463,7 +519,7 @@
 						"method": "GET",
 						"header": [
 							{
-								"key": "x-api-key",
+								"key": "X-API-Key",
 								"value": "{{api_key}}",
 								"type": "text"
 							}
@@ -496,7 +552,7 @@
 						"method": "GET",
 						"header": [
 							{
-								"key": "x-api-key",
+								"key": "X-API-Key",
 								"value": "{{api_key}}",
 								"type": "text"
 							}
@@ -539,7 +595,7 @@
 			]
 		},
 		{
-			"name": "Usage Tracking APIs (x-api-key)",
+			"name": "Usage Tracking APIs (X-API-Key)",
 			"description": "Usage statistics and limits management",
 			"item": [
 				{
@@ -551,7 +607,7 @@
 						"method": "GET",
 						"header": [
 							{
-								"key": "x-api-key",
+								"key": "X-API-Key",
 								"value": "{{api_key}}",
 								"type": "text"
 							}
@@ -574,7 +630,7 @@
 						"method": "GET",
 						"header": [
 							{
-								"key": "x-api-key",
+								"key": "X-API-Key",
 								"value": "{{api_key}}",
 								"type": "text"
 							}
@@ -603,7 +659,7 @@
 						"method": "GET",
 						"header": [
 							{
-								"key": "x-api-key",
+								"key": "X-API-Key",
 								"value": "{{api_key}}",
 								"type": "text"
 							}
@@ -636,7 +692,7 @@
 						"method": "GET",
 						"header": [
 							{
-								"key": "x-api-key",
+								"key": "X-API-Key",
 								"value": "{{api_key}}",
 								"type": "text"
 							}
@@ -659,7 +715,7 @@
 						"method": "POST",
 						"header": [
 							{
-								"key": "x-api-key",
+								"key": "X-API-Key",
 								"value": "{{api_key}}",
 								"type": "text"
 							},
@@ -690,7 +746,7 @@
 						"method": "PUT",
 						"header": [
 							{
-								"key": "x-api-key",
+								"key": "X-API-Key",
 								"value": "{{api_key}}",
 								"type": "text"
 							},
@@ -721,7 +777,7 @@
 						"method": "DELETE",
 						"header": [
 							{
-								"key": "x-api-key",
+								"key": "X-API-Key",
 								"value": "{{api_key}}",
 								"type": "text"
 							}
@@ -767,14 +823,42 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{}"
+							"raw": "{\n  \"accountId\": {{account_id}}\n}"
 						},
 						"url": {
-							"raw": "{{base_url}}/api/whatsapp/connect",
+							"raw": "{{base_url}}/api/whatsapp/connect?account_id={{account_id}}",
 							"host": ["{{base_url}}"],
-							"path": ["api", "whatsapp", "connect"]
+							"path": ["api", "whatsapp", "connect"],
+							"query": [
+								{
+									"key": "account_id",
+									"value": "{{account_id}}",
+									"description": "Optional: Account ID to connect"
+								}
+							]
 						},
-						"description": "Initiate WhatsApp connection"
+						"description": "Initiate WhatsApp connection. You can provide account_id in query parameter or request body (accountId)."
+					},
+					"response": []
+				},
+				{
+					"name": "Get QR Code",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/whatsapp/qr?account_id=2",
+							"host": ["{{base_url}}"],
+							"path": ["api", "whatsapp", "qr"],
+							"query": [
+								{
+									"key": "account_id",
+									"value": "{{account_id}}",
+									"description": "Required: Account ID to get QR code for"
+								}
+							]
+						},
+						"description": "Get QR code for WhatsApp connection. Call this after connecting an account."
 					},
 					"response": []
 				},

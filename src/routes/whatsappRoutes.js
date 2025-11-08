@@ -45,10 +45,15 @@ router.get(
   ...mustAuthWhatsapp,
   whatsappController.getWhatsAppStatus
 );
-router.get(
+router.post(
   "/connect",
   ...mustAuthWhatsapp,
   whatsappController.connectToWhatsApp
+);
+router.get(
+  "/qr",
+  ...mustAuthWhatsapp,
+  whatsappController.getQRCode
 );
 router.post(
   "/check-whatsapp-number",

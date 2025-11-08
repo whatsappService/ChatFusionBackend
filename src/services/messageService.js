@@ -28,21 +28,21 @@ function needsPerRecipient(text) {
 /** Low-level single-recipient send: recipient phone, array of messages, optional files[] */
 async function doSend(apiKey, phone, messages, files = []) {
   const form = new FormData();
-  form.append("phoneNumber", phone);
-  (Array.isArray(messages) ? messages : [messages]).forEach((msg) =>
-    form.append("message", msg)
-  );
+  form.append("phone", phone);
+  // For single message, use the first message only (per documentation)
+  const messageText = Array.isArray(messages) ? messages[0] : messages;
+  form.append("message", messageText);
   (Array.isArray(files) ? files : []).forEach((file) =>
-    form.append("file", file.buffer, { filename: file.originalname })
+    form.append("media", file.buffer, { filename: file.originalname })
   );
 
   try {
-    const CHATFUSION_BASE_URL = process.env.CHATFUSION_BASE_URL || "http://localhost:5500/api";
-    const CHATFUSION_SEND_MESSAGE_URL = process.env.CHATFUSION_MESSAGING_SEND_URL || `${CHATFUSION_BASE_URL}/messages/send`;
+    const CHATFUSION_BASE_URL = process.env.CHATFUSION_BASE_URL || "https://be.muraasala.com";
+    const CHATFUSION_SEND_MESSAGE_URL = process.env.CHATFUSION_MESSAGING_SEND_URL || `${CHATFUSION_BASE_URL}/api/messages/send`;
     const resp = await axios.post(
       CHATFUSION_SEND_MESSAGE_URL,
       form,
-      { headers: { "x-api-key": apiKey, ...form.getHeaders() } }
+      { headers: { "X-API-Key": apiKey, ...form.getHeaders() } }
     );
     if (!resp.data?.success || resp.data?.failedCount > 0) {
       const failed = resp.data?.data?.failedMessages || [];
@@ -90,12 +90,12 @@ async function doSend(apiKey, phone, messages, files = []) {
  */
 async function doSendBulk(apiKey, recipients, messages, files = []) {
   const form = new FormData();
-  form.append("recipients", JSON.stringify(recipients));
-  (Array.isArray(messages) ? messages : [messages]).forEach((msg) =>
-    form.append("contents", msg)
-  );
+  form.append("phones", JSON.stringify(recipients));
+  // For bulk, use the first message (per documentation)
+  const messageText = Array.isArray(messages) ? messages[0] : messages;
+  form.append("message", messageText);
   (Array.isArray(files) ? files : []).forEach((file) =>
-    form.append("files", file.buffer, { filename: file.originalname })
+    form.append("media", file.buffer, { filename: file.originalname })
   );
 
   // helpers to keep logs safe & readable
@@ -127,12 +127,12 @@ async function doSendBulk(apiKey, recipients, messages, files = []) {
   }
 
   try {
-    const CHATFUSION_BASE_URL = process.env.CHATFUSION_BASE_URL || "http://localhost:5500/api";
-    const CHATFUSION_SEND_BULK_URL = process.env.CHATFUSION_MESSAGING_SEND_BULK_URL || `${CHATFUSION_BASE_URL}/messages/sendBulk`;
+    const CHATFUSION_BASE_URL = process.env.CHATFUSION_BASE_URL || "https://be.muraasala.com";
+    const CHATFUSION_SEND_BULK_URL = process.env.CHATFUSION_MESSAGING_SEND_BULK_URL || `${CHATFUSION_BASE_URL}/api/messages/bulk`;
     const resp = await axios.post(
       CHATFUSION_SEND_BULK_URL,
       form,
-      { headers: { "x-api-key": apiKey, ...form.getHeaders() } }
+      { headers: { "X-API-Key": apiKey, ...form.getHeaders() } }
     );
 
     // Log raw upstream result (compact)
@@ -428,27 +428,27 @@ exports.sendGroupMessage = async (businessId, groupId, contents, files = [], opt
   const form = new FormData();
   form.append("groupId", groupId);
   
-  if (Array.isArray(contents)) {
-    contents.forEach((content, index) => {
-      form.append(`contents[${index}]`, content);
-    });
+  // Per documentation: single message uses "message", multiple uses "messages" (JSON array)
+  if (Array.isArray(contents) && contents.length > 1) {
+    form.append("messages", JSON.stringify(contents));
   } else {
-    form.append("contents[0]", contents);
+    const messageText = Array.isArray(contents) ? contents[0] : contents;
+    form.append("message", messageText);
   }
 
-  // Add files if any
+  // Add attachments if any (per documentation, use "attachments" not "files")
   if (Array.isArray(files) && files.length > 0) {
-    files.forEach((file, index) => {
-      form.append("files", file.buffer, { filename: file.originalname });
+    files.forEach((file) => {
+      form.append("attachments", file.buffer, { filename: file.originalname });
     });
   }
 
   try {
     const CHATFUSION_BASE_URL = process.env.CHATFUSION_BASE_URL || "https://be.muraasala.com";
-    const CHATFUSION_SEND_GROUP_URL = process.env.CHATFUSION_SEND_GROUP_URL || `${CHATFUSION_BASE_URL}/api/messages/sendGroup`;
+    const CHATFUSION_SEND_GROUP_URL = process.env.CHATFUSION_SEND_GROUP_URL || `${CHATFUSION_BASE_URL}/api/messages/group`;
     
     const response = await axios.post(CHATFUSION_SEND_GROUP_URL, form, {
-      headers: { "x-api-key": business.api_key, ...form.getHeaders() },
+      headers: { "X-API-Key": business.api_key, ...form.getHeaders() },
     });
 
     return {

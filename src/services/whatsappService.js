@@ -6,14 +6,15 @@ dotenv.config();
 const { User, Business } = require("../models/associations");
 
 const WHATSAPP_SERVICE_URL = process.env.WHATSAPP_SERVICE_URL;
-const CHATFUSION_BASE_URL = process.env.CHATFUSION_BASE_URL || "http://localhost:5500/api";
-const CHATFUSION_AUTH_PROFILE_URL = process.env.CHATFUSION_AUTH_PROFILE_URL || `${CHATFUSION_BASE_URL}/auth/profile`;
-const CHATFUSION_RESET_API_KEY_URL = process.env.CHATFUSION_AUTH_RESET_KEY_URL || `${CHATFUSION_BASE_URL}/auth/reset-api-key`;
-const CHATFUSION_UPDATE_API_KEY_URL = process.env.CHATFUSION_AUTH_UPDATE_KEY_URL || `${CHATFUSION_BASE_URL}/auth/update-api-key`;
-const CHATFUSION_STATUS_URL = process.env.CHATFUSION_WHATSAPP_STATUS_URL || `${CHATFUSION_BASE_URL}/whatsapp/status`;
-const CHATFUSION_CONNECT_URL = process.env.CHATFUSION_WHATSAPP_CONNECT_URL || `${CHATFUSION_BASE_URL}/whatsapp/connect`;
-const CHATFUSION_CHECK_NUMBER_URL = process.env.CHATFUSION_WHATSAPP_CHECK_NUMBER_URL || `${CHATFUSION_BASE_URL}/whatsapp/check-whatsapp-number`;
-const CHATFUSION_DISCONNECT_URL = process.env.CHATFUSION_WHATSAPP_DISCONNECT_URL || `${CHATFUSION_BASE_URL}/whatsapp/disconnect`;
+const CHATFUSION_BASE_URL = process.env.CHATFUSION_BASE_URL || "https://be.muraasala.com";
+const CHATFUSION_AUTH_PROFILE_URL = process.env.CHATFUSION_AUTH_PROFILE_URL || `${CHATFUSION_BASE_URL}/api/auth/profile`;
+const CHATFUSION_RESET_API_KEY_URL = process.env.CHATFUSION_AUTH_RESET_KEY_URL || `${CHATFUSION_BASE_URL}/api/auth/reset-api-key`;
+const CHATFUSION_UPDATE_API_KEY_URL = process.env.CHATFUSION_AUTH_UPDATE_KEY_URL || `${CHATFUSION_BASE_URL}/api/auth/update-api-key`;
+const CHATFUSION_STATUS_URL = process.env.CHATFUSION_WHATSAPP_STATUS_URL || `${CHATFUSION_BASE_URL}/api/whatsapp/status`;
+const CHATFUSION_CONNECT_URL = process.env.CHATFUSION_WHATSAPP_CONNECT_URL || `${CHATFUSION_BASE_URL}/api/account/connect`;
+const CHATFUSION_CHECK_NUMBER_URL = process.env.CHATFUSION_WHATSAPP_CHECK_NUMBER_URL || `${CHATFUSION_BASE_URL}/api/whatsapp/check-whatsapp-number`;
+const CHATFUSION_DISCONNECT_URL = process.env.CHATFUSION_WHATSAPP_DISCONNECT_URL || `${CHATFUSION_BASE_URL}/api/account/disconnect`;
+const CHATFUSION_QR_URL = process.env.CHATFUSION_QR_URL || `${CHATFUSION_BASE_URL}/api/qr`;
 
 
 /**
@@ -62,7 +63,7 @@ exports.fetchWhatsappAccountInfo = async (apiKey) => {
     }
 
     const response = await axios.get(CHATFUSION_AUTH_PROFILE_URL, {
-      headers: { "x-api-key": apiKey },
+      headers: { "X-API-Key": apiKey },
     });
 
     return response.data;
@@ -105,7 +106,7 @@ exports.resetBusinessApiKey = async (userId, password) => {
       {}, // Empty request body
       {
         headers: {
-          "x-api-key": oldApiKey,
+          "X-API-Key": oldApiKey,
         },
       }
     );
@@ -165,7 +166,7 @@ exports.fetchWhatsAppStatus = async (userId) => {
     }
 
     const response = await axios.get(CHATFUSION_STATUS_URL, {
-      headers: { "x-api-key": apiKey },
+      headers: { "X-API-Key": apiKey },
     });
 
     return response.data;
@@ -189,18 +190,31 @@ exports.fetchWhatsAppStatus = async (userId) => {
   }
 };
 
-exports.connectToWhatsApp = async (userId) => {
+exports.connectToWhatsApp = async (userId, accountId = null) => {
   try {
     const apiKey = await this.getApiKeyByUser(userId);
     if (!apiKey) {
       throw new Error("API Key not found.");
     }
 
-    const response = await axios.get(
-      CHATFUSION_CONNECT_URL, // Correct URL
+    // Build URL with optional account_id query parameter
+    let url = CHATFUSION_CONNECT_URL;
+    if (accountId) {
+      url += `?account_id=${accountId}`;
+    }
 
+    // Use POST with form-data body (per documentation)
+    const FormData = require('form-data');
+    const form = new FormData();
+    if (accountId) {
+      form.append('accountId', accountId);
+    }
+
+    const response = await axios.post(
+      url,
+      form,
       {
-        headers: { "x-api-key": apiKey }, // Send API Key in header
+        headers: { "X-API-Key": apiKey, ...form.getHeaders() },
       }
     );
 
@@ -252,7 +266,7 @@ exports.checkWhatsAppNumber = async (userId, phoneNumber) => {
 
     // Call the ChatFusion API using GET request
     const response = await axios.get(url, {
-      headers: { "x-api-key": apiKey },
+      headers: { "X-API-Key": apiKey },
     });
 
     return response.data;
@@ -341,7 +355,7 @@ exports.disconnectFromWhatsApp = async (userId, accountId) => {
       body.accountId = accountId;
     }
     const response = await axios.post(CHATFUSION_DISCONNECT_URL, body, {
-      headers: { "x-api-key": apiKey },
+      headers: { "X-API-Key": apiKey },
     });
     return response.data;
   } catch (error) {
@@ -352,5 +366,50 @@ exports.disconnectFromWhatsApp = async (userId, accountId) => {
     throw new Error(
       error.response?.data?.message || "Failed to disconnect WhatsApp"
     );
+  }
+};
+
+/**
+ * Get QR Code for WhatsApp connection
+ * 
+ * @param {number} userId - The id of the authenticated user
+ * @param {number} accountId - Account ID to get QR code for (required)
+ * @returns {Object} - The response from the ChatFusion API with QR code
+ */
+exports.getQRCode = async (userId, accountId) => {
+  try {
+    const apiKey = await this.getApiKeyByUser(userId);
+    if (!apiKey) {
+      throw new Error("API key not found for this business.");
+    }
+
+    if (!accountId) {
+      throw new Error("Account ID is required to get QR code");
+    }
+
+    const url = `${CHATFUSION_QR_URL}?account_id=${accountId}`;
+
+    const response = await axios.get(url, {
+      headers: { "X-API-Key": apiKey },
+    });
+
+    return response.data;
+  } catch (error) {
+    console.error(
+      "❌ Error getting QR code via ChatFusion API:",
+      error.response?.data || error.message
+    );
+    
+    if (error.response?.status === 401) {
+      throw new Error("QR Code Error: Unauthorized - Invalid API key or expired credentials");
+    } else if (error.response?.status === 404) {
+      throw new Error("QR Code Error: Service not found - ChatFusion API endpoint unavailable");
+    } else if (error.response?.status >= 500) {
+      throw new Error("QR Code Error: ChatFusion server error - External service is down");
+    } else if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
+      throw new Error("QR Code Error: Cannot connect to ChatFusion API - Network or DNS issue");
+    } else {
+      throw new Error(`QR Code Error: ${error.response?.data?.message || error.message || 'Unknown error occurred'}`);
+    }
   }
 };

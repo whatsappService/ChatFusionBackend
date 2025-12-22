@@ -151,6 +151,21 @@ exports.getQRCode = async (req, res) => {
   }
 };
 
+// ✅ Get All WhatsApp Accounts
+exports.getAllAccounts = async (req, res) => {
+  try {
+    const accountsData = await whatsappService.getAllAccounts(req.user.id);
+    res.json(accountsData);
+  } catch (error) {
+    console.error("❌ WhatsApp Controller - Get All Accounts Error:", error);
+    res.status(400).json({
+      error: "Get All Accounts Controller Error",
+      message: error.message || "Failed to get all accounts",
+      source: "WhatsApp Controller"
+    });
+  }
+};
+
 exports.checkWhatsAppNumber = async (req, res) => {
   try {
     const { phoneNumber } = req.body;

@@ -21,6 +21,11 @@ const mustAuthWhatsapp = [
 ];
 
 router.get(
+  "/accounts",
+  ...mustAuthWhatsapp,
+  whatsappController.getAllAccounts
+);
+router.get(
   "/account-info",
   ...mustManageWhatsapp,
   whatsappController.getWhatsappAccountInfo

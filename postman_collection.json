@@ -812,6 +812,20 @@
 					"response": []
 				},
 				{
+					"name": "Get All Accounts",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/whatsapp/accounts",
+							"host": ["{{base_url}}"],
+							"path": ["api", "whatsapp", "accounts"]
+						},
+						"description": "Get all WhatsApp accounts for the authenticated user. This endpoint calls the ChatFusion service at https://be.muraasala.com/api/accounts"
+					},
+					"response": []
+				},
+				{
 					"name": "Connect to WhatsApp",
 					"request": {
 						"method": "POST",

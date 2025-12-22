@@ -9,15 +9,17 @@ services:
     environment:
       NODE_ENV: production
       DB_DIALECT: mysql
-      MYSQL_HOST: mysql_db     # <-- service name
-      MYSQL_PORT: 3306         # <-- container's port
-      MYSQL_USER: root
-      MYSQL_PASSWORD: root
-      MYSQL_DB: whatsapp_portal
-      DB_POOL_MAX: 10
-      DB_POOL_MIN: 0
-      DB_POOL_IDLE: 10000
-      DB_POOL_ACQUIRE: 30000
+      # For production: connect to external MySQL on host port 3307
+      # For Docker network: use service name and container port 3306
+      MYSQL_HOST: ${MYSQL_HOST:-host.docker.internal}
+      MYSQL_PORT: ${MYSQL_PORT:-3307}
+      MYSQL_USER: ${MYSQL_USER:-root}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-root}
+      MYSQL_DB: ${MYSQL_DB:-whatsapp_portal}
+      DB_POOL_MAX: ${DB_POOL_MAX:-20}
+      DB_POOL_MIN: ${DB_POOL_MIN:-2}
+      DB_POOL_IDLE: ${DB_POOL_IDLE:-10000}
+      DB_POOL_ACQUIRE: ${DB_POOL_ACQUIRE:-30000}
     networks:
       - whatsapp_network
     command: sh -c "npm start"

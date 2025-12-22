@@ -15,6 +15,7 @@ const CHATFUSION_CONNECT_URL = process.env.CHATFUSION_WHATSAPP_CONNECT_URL || `$
 const CHATFUSION_CHECK_NUMBER_URL = process.env.CHATFUSION_WHATSAPP_CHECK_NUMBER_URL || `${CHATFUSION_BASE_URL}/api/whatsapp/check-whatsapp-number`;
 const CHATFUSION_DISCONNECT_URL = process.env.CHATFUSION_WHATSAPP_DISCONNECT_URL || `${CHATFUSION_BASE_URL}/api/account/disconnect`;
 const CHATFUSION_QR_URL = process.env.CHATFUSION_QR_URL || `${CHATFUSION_BASE_URL}/api/qr`;
+const CHATFUSION_ACCOUNTS_URL = process.env.CHATFUSION_ACCOUNTS_URL || `${CHATFUSION_BASE_URL}/api/accounts`;
 
 
 /**
@@ -158,6 +159,9 @@ exports.updateBusinessApiKey = async (userId, apiKey, password) => {
 /**
  * ✅ Fetch WhatsApp Authentication Status (Now includes x-api-key)
  */
+/**
+ * ✅ Fetch WhatsApp Authentication Status (Now includes x-api-key)
+ */
 exports.fetchWhatsAppStatus = async (userId) => {
   try {
     const apiKey = await this.getApiKeyByUser(userId);
@@ -203,20 +207,10 @@ exports.connectToWhatsApp = async (userId, accountId = null) => {
       url += `?account_id=${accountId}`;
     }
 
-    // Use POST with form-data body (per documentation)
-    const FormData = require('form-data');
-    const form = new FormData();
-    if (accountId) {
-      form.append('accountId', accountId);
-    }
-
-    const response = await axios.post(
-      url,
-      form,
-      {
-        headers: { "X-API-Key": apiKey, ...form.getHeaders() },
-      }
-    );
+    // Use GET request for wwebService connect endpoint
+    const response = await axios.get(url, {
+      headers: { "X-API-Key": apiKey },
+    });
 
     return response.data;
   } catch (error) {
@@ -259,7 +253,7 @@ exports.checkWhatsAppNumber = async (userId, phoneNumber) => {
       throw new Error("API key not found for this business.");
     }
 
-    // Build the URL using the query parameter 'recipient'
+    // Build the URL using the query parameter 'phone'
     const url = `${CHATFUSION_CHECK_NUMBER_URL}?phone=${encodeURIComponent(
       phoneNumber
     )}`;
@@ -294,42 +288,6 @@ exports.checkWhatsAppNumber = async (userId, phoneNumber) => {
     }
   }
 };
-/**
- * Check if a phone number is registered on WhatsApp using ChatFusion API.
- *
- * @param {number} userId - The id of the authenticated user.
- * @param {string} phoneNumber - The phone number to check.
- * @returns {Object} - The response from the ChatFusion API.
- */
-// exports.checkWhatsAppNumber = async (userId, phoneNumber) => {
-//   try {
-//     // Retrieve the API key associated with the user's business
-//     const apiKey = await this.getApiKeyByUser(userId);
-//     if (!apiKey) {
-//       throw new Error("API key not found for this business.");
-//     }
-
-//     // Build the URL using the query parameter 'recipient'
-//     const url = `${CHATFUSION_CHECK_NUMBER_URL}?phone=${encodeURIComponent(
-//       phoneNumber
-//     )}`;
-
-//     // Call the ChatFusion API using GET request
-//     const response = await axios.get(url, {
-//       headers: { "x-api-key": apiKey },
-//     });
-
-//     return response.data;
-//   } catch (error) {
-//     console.error(
-//       "Error checking WhatsApp number:",
-//       error.response?.data || error.message
-//     );
-//     throw new Error(
-//       error.response?.data?.message || "Failed to check WhatsApp number"
-//     );
-//   }
-// };
 
 /**
  * Disconnect the WhatsApp client associated with a business.
@@ -377,39 +335,31 @@ exports.disconnectFromWhatsApp = async (userId, accountId) => {
  * @returns {Object} - The response from the ChatFusion API with QR code
  */
 exports.getQRCode = async (userId, accountId) => {
+  // In wwebService, connect endpoint returns the QR code
+  return this.connectToWhatsApp(userId, accountId);
+};
+
+/**
+ * Get all WhatsApp accounts for the user
+ * 
+ * @param {number} userId - The id of the authenticated user
+ * @returns {Object} - The response from the ChatFusion API with all accounts
+ */
+exports.getAllAccounts = async (userId) => {
   try {
-    const apiKey = await this.getApiKeyByUser(userId);
-    if (!apiKey) {
-      throw new Error("API key not found for this business.");
-    }
-
-    if (!accountId) {
-      throw new Error("Account ID is required to get QR code");
-    }
-
-    const url = `${CHATFUSION_QR_URL}?account_id=${accountId}`;
-
-    const response = await axios.get(url, {
-      headers: { "X-API-Key": apiKey },
-    });
-
-    return response.data;
+    // wwebService doesn't have a specific accounts endpoint, but status returns account info
+    // We can use the status endpoint to get account details
+    const status = await this.fetchWhatsAppStatus(userId);
+    
+    // Transform status response to accounts format if needed
+    // wwebService status response: { primaryStatus: {...}, alternativeStatus: {...}, accounts: { primary: {...}, alternative: {...} } }
+    
+    return status;
   } catch (error) {
     console.error(
-      "❌ Error getting QR code via ChatFusion API:",
+      "❌ Error getting all accounts via ChatFusion API:",
       error.response?.data || error.message
     );
-    
-    if (error.response?.status === 401) {
-      throw new Error("QR Code Error: Unauthorized - Invalid API key or expired credentials");
-    } else if (error.response?.status === 404) {
-      throw new Error("QR Code Error: Service not found - ChatFusion API endpoint unavailable");
-    } else if (error.response?.status >= 500) {
-      throw new Error("QR Code Error: ChatFusion server error - External service is down");
-    } else if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
-      throw new Error("QR Code Error: Cannot connect to ChatFusion API - Network or DNS issue");
-    } else {
-      throw new Error(`QR Code Error: ${error.response?.data?.message || error.message || 'Unknown error occurred'}`);
-    }
+    throw error;
   }
 };
